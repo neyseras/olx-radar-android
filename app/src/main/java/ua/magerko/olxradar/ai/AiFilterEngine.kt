@@ -1,0 +1,285 @@
+package ua.magerko.olxradar.ai
+
+import android.util.Log
+import ua.magerko.olxradar.data.local.AiCacheDao
+import ua.magerko.olxradar.data.local.AiCacheEntry
+import ua.magerko.olxradar.data.model.Listing
+import ua.magerko.olxradar.data.model.Watch
+import ua.magerko.olxradar.util.AppLog
+
+data class AiEvaluation(
+    val status: String,
+    val shouldNotify: Boolean,
+    val shouldSaveFinding: Boolean,
+    val result: AiAnalysisResult?,
+    val errorMessage: String? = null
+)
+
+class AiFilterEngine(
+    private val aiPreferences: AiPreferences,
+    private val groqClient: GroqVisionClient,
+    private val imageProcessor: AiImageProcessor,
+    private val aiCacheDao: AiCacheDao? = null
+) {
+
+    companion object {
+        private const val TAG = "AiFilterEngine"
+    }
+
+    suspend fun evaluateListing(listing: Listing, watch: Watch): AiEvaluation {
+        if (!aiPreferences.isAiEnabled || aiPreferences.apiKey.isBlank()) {
+            return AiEvaluation(
+                status = AiStatus.SKIPPED,
+                shouldNotify = true,
+                shouldSaveFinding = true,
+                result = null
+            )
+        }
+
+        // Periodically prune stale cache entries (older than 14 days)
+        try {
+            val twoWeeksAgo = System.currentTimeMillis() - 14L * 24 * 60 * 60 * 1000L
+            aiCacheDao?.pruneOld(twoWeeksAgo)
+        } catch (_: Exception) {
+        }
+
+        // 1. Check AI cache to avoid re-analyzing the same listing
+        val cached = try {
+            aiCacheDao?.getByListingId(listing.id)
+        } catch (e: Exception) {
+            Log.w(TAG, "Cache lookup error: ${e.message}")
+            null
+        }
+
+        val analysisResult: AiAnalysisResult
+        if (cached != null) {
+            val parsed = AiAnalysisResult.fromJson(cached.resultJson)
+            if (parsed != null) {
+                analysisResult = parsed
+                val statusLabel = when {
+                    analysisResult.condition == "broken" || analysisResult.visibleDefects.isNotEmpty() -> AiStatus.NEEDS_REVIEW
+                    !analysisResult.isMatch && analysisResult.confidence >= 75 -> AiStatus.REJECTED
+                    else -> AiStatus.MATCH
+                }
+                val reasonText = analysisResult.reasons.firstOrNull() ?: analysisResult.rejectReason ?: (if (analysisResult.isMatch) "Подходит под условия поиска" else "Не подходит")
+                AiRuntime.recordCached(
+                    listingId = listing.id,
+                    title = listing.title,
+                    url = listing.url,
+                    photoUrl = listing.photoUrl ?: listing.photoUrls.firstOrNull(),
+                    price = listing.price,
+                    currency = listing.currency ?: "грн",
+                    radarTitle = watch.title,
+                    status = statusLabel,
+                    confidence = analysisResult.confidence,
+                    reasons = reasonText
+                )
+            } else {
+                val fresh = runAnalysis(listing, watch)
+                if (fresh.isFailure) {
+                    return handleAiError(fresh.exceptionOrNull())
+                }
+                analysisResult = fresh.getOrThrow()
+            }
+        } else {
+            val fresh = runAnalysis(listing, watch)
+            if (fresh.isFailure) {
+                return handleAiError(fresh.exceptionOrNull())
+            }
+            analysisResult = fresh.getOrThrow()
+            try {
+                aiCacheDao?.insert(AiCacheEntry(listing.id, analysisResult.toJsonString()))
+            } catch (e: Exception) {
+                Log.w(TAG, "Cache insert error: ${e.message}")
+            }
+        }
+
+        return evaluateResult(analysisResult)
+    }
+
+    private suspend fun runAnalysis(listing: Listing, watch: Watch): Result<AiAnalysisResult> {
+        val photosToProcess = if (listing.photoUrls.isNotEmpty()) {
+            listing.photoUrls
+        } else if (!listing.photoUrl.isNullOrEmpty()) {
+            listOf(listing.photoUrl)
+        } else {
+            emptyList()
+        }
+
+        // Внешний статус: что нейросеть обрабатывает прямо сейчас (с ссылкой и фото)
+        AiRuntime.start(
+            listingId = listing.id,
+            listingTitle = listing.title,
+            url = listing.url,
+            photoUrl = listing.photoUrl ?: listing.photoUrls.firstOrNull(),
+            price = listing.price,
+            currency = listing.currency ?: "грн",
+            radarTitle = watch.title,
+            photosTotal = photosToProcess.take(aiPreferences.maxPhotos).size
+        )
+        AppLog.d(TAG, "ИИ: анализ '${listing.title.take(60)}' (радар '${watch.title}', фото: ${photosToProcess.size})")
+
+        val base64Images = imageProcessor.processImages(photosToProcess, aiPreferences.maxPhotos)
+        val result = groqClient.analyzeListing(listing, watch, base64Images)
+        result.onSuccess { ai ->
+            val statusLabel = when {
+                ai.condition == "broken" || ai.visibleDefects.isNotEmpty() -> AiStatus.NEEDS_REVIEW
+                !ai.isMatch && ai.confidence >= 75 -> AiStatus.REJECTED
+                else -> AiStatus.MATCH
+            }
+            val reasonText = ai.reasons.firstOrNull() ?: ai.rejectReason ?: (if (ai.isMatch) "Подходит под условия поиска" else "Не подходит")
+            AiRuntime.finish(statusLabel, ai.confidence, reasonText)
+        }
+        result.onFailure { AiRuntime.finishError(it.message ?: it.toString()) }
+        return result
+    }
+
+    internal fun evaluateResult(ai: AiAnalysisResult): AiEvaluation {
+        val confidence = ai.confidence
+        val threshold = aiPreferences.confidenceThreshold
+        val isManual = aiPreferences.isManualReviewMode
+        val isStrict = aiPreferences.isStrictMode
+        val notifyRejected = aiPreferences.isNotifyRejected
+        val shouldSave = !isStrict && isManual
+
+        // 1. Completeness filter: Box only or parts only -> REJECTED
+        val isBoxOrParts = ai.completeness in listOf("box_only", "parts_only", "parts", "box")
+        if (isBoxOrParts) {
+            return AiEvaluation(
+                status = AiStatus.REJECTED,
+                shouldNotify = notifyRejected,
+                shouldSaveFinding = shouldSave,
+                result = ai
+            )
+        }
+
+        // 2. Photo does not match title with high confidence -> REJECTED
+        if (!ai.photoMatchesTitle && confidence >= 75) {
+            return AiEvaluation(
+                status = AiStatus.REJECTED,
+                shouldNotify = notifyRejected,
+                shouldSaveFinding = shouldSave,
+                result = ai
+            )
+        }
+
+        // 3. AI reports definite mismatch (confidence >= 75) -> REJECTED
+        if (!ai.isMatch && confidence >= 75) {
+            return AiEvaluation(
+                status = AiStatus.REJECTED,
+                shouldNotify = notifyRejected,
+                shouldSaveFinding = shouldSave,
+                result = ai
+            )
+        }
+
+        // 4. Defective product (condition == "broken" or visible defects present)
+        // Should not be auto-rejected (user might want for repair/cheap price), mark NEEDS_REVIEW
+        val isDefective = ai.condition == "broken" || ai.visibleDefects.isNotEmpty()
+        if (isDefective) {
+            return AiEvaluation(
+                status = AiStatus.NEEDS_REVIEW,
+                shouldNotify = true,
+                shouldSaveFinding = true,
+                result = ai
+            )
+        }
+
+        // 5. Explicit suspicious flag
+        if (ai.isSuspicious && aiPreferences.isCheckSuspicious) {
+            return AiEvaluation(
+                status = AiStatus.NEEDS_REVIEW,
+                shouldNotify = true,
+                shouldSaveFinding = true,
+                result = ai
+            )
+        }
+
+        // 6. AI reports is_match == true
+        if (ai.isMatch) {
+            return when {
+                confidence >= threshold -> {
+                    AiEvaluation(
+                        status = AiStatus.MATCH,
+                        shouldNotify = true,
+                        shouldSaveFinding = true,
+                        result = ai
+                    )
+                }
+                confidence >= 50 -> {
+                    // 50-74: requires review
+                    AiEvaluation(
+                        status = AiStatus.NEEDS_REVIEW,
+                        shouldNotify = true,
+                        shouldSaveFinding = true,
+                        result = ai
+                    )
+                }
+                else -> {
+                    // 0-49: low relevance
+                    if (isStrict) {
+                        AiEvaluation(
+                            status = AiStatus.REJECTED,
+                            shouldNotify = notifyRejected,
+                            shouldSaveFinding = false,
+                            result = ai
+                        )
+                    } else if (isManual) {
+                        // "Не пропускать потенциально выгодные объявления из-за недостаточной уверенности AI"
+                        AiEvaluation(
+                            status = AiStatus.NEEDS_REVIEW,
+                            shouldNotify = true,
+                            shouldSaveFinding = true,
+                            result = ai
+                        )
+                    } else {
+                        AiEvaluation(
+                            status = AiStatus.REJECTED,
+                            shouldNotify = notifyRejected,
+                            shouldSaveFinding = false,
+                            result = ai
+                        )
+                    }
+                }
+            }
+        }
+
+        // 7. AI reports is_match == false with low confidence (< 75, AI is uncertain)
+        // "Не пропускать потенциально выгодные объявления из-за недостаточной уверенности AI"
+        return if (isStrict) {
+            AiEvaluation(
+                status = AiStatus.REJECTED,
+                shouldNotify = notifyRejected,
+                shouldSaveFinding = false,
+                result = ai
+            )
+        } else if (isManual) {
+            AiEvaluation(
+                status = AiStatus.NEEDS_REVIEW,
+                shouldNotify = true,
+                shouldSaveFinding = true,
+                result = ai
+            )
+        } else {
+            AiEvaluation(
+                status = AiStatus.REJECTED,
+                shouldNotify = notifyRejected,
+                shouldSaveFinding = false,
+                result = ai
+            )
+        }
+    }
+
+    private fun handleAiError(e: Throwable?): AiEvaluation {
+        val errorMsg = e?.message ?: "AI request failed"
+        Log.w(TAG, "AI processing error: $errorMsg")
+        // Graceful fallback: do NOT drop the listing when AI fails!
+        return AiEvaluation(
+            status = AiStatus.ERROR,
+            shouldNotify = true,
+            shouldSaveFinding = true,
+            result = null,
+            errorMessage = errorMsg
+        )
+    }
+}

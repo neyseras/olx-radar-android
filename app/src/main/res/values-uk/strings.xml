@@ -1,0 +1,215 @@
+<resources>
+    <string name="app_name">OLX Radar</string>
+    <string name="app_subtitle">Миттєвий моніторинг оголошень</string>
+    <string name="tab_findings">Знахідки</string>
+    <string name="tab_watches">Радари</string>
+    <string name="tab_settings">Статус</string>
+
+    <!-- Service & Status Notifications -->
+    <string name="service_running">Моніторинг активний (24/7)</string>
+    <string name="service_paused">Моніторинг на паузі</string>
+    <string name="service_stopped">Моніторинг зупинено</string>
+    <string name="service_starting">Запуск служби моніторингу…</string>
+    <string name="service_status_updated">Оновлено: %1$s</string>
+    <string name="status_no_active_watches">Немає активних радарів</string>
+    <string name="action_start">Запустити</string>
+    <string name="action_stop">Стоп</string>
+    <string name="action_pause">Пауза</string>
+    <string name="action_resume">Відновити</string>
+
+    <!-- Channels -->
+    <string name="notification_channel_name">Сповіщення про знахідки</string>
+    <string name="notification_channel_desc">Сповіщення про нові оголошення на OLX</string>
+    <string name="service_channel_name">Служба моніторингу</string>
+    <string name="service_channel_desc">Фоновий процес опитування OLX</string>
+
+    <!-- Alert Badges & Messages -->
+    <string name="notif_badge_new">⚡ НОВЕ: </string>
+    <string name="notif_badge_pushup">⬆ ПІДНЯТЕ: </string>
+    <string name="notif_group_summary">Нові знахідки за радарами</string>
+    <string name="notif_error_title">Збій опитування OLX</string>
+    <string name="notif_error_body">OLX не відповідає або блокує запити радара «%1$s». Повторні спроби з інтервалом до 5 хв.</string>
+    <string name="notif_resume_after_boot">Натисніть, щоб відновити радар після перезавантаження</string>
+
+    <!-- Currencies & Prices -->
+    <string name="price_negotiable">Договірна</string>
+    <string name="currency_uah">грн</string>
+    <string name="currency_usd">$</string>
+    <string name="currency_eur">€</string>
+    <string name="currency_code_uah">UAH</string>
+
+    <!-- Findings Tab -->
+    <string name="findings_empty_title">Поки що знахідок немає</string>
+    <string name="findings_empty_subtitle">Додайте радар у вкладці «Радари» та увімкніть службу.</string>
+    <string name="findings_chip_all">Усі радари</string>
+    <string name="findings_deleted_snackbar">Знахідку видалено</string>
+    <string name="action_undo">Скасувати</string>
+    <string name="action_open_olx">Відкрити на OLX</string>
+    <string name="action_delete">Видалити</string>
+    <string name="action_clear_all_findings">Очистити історію знахідок</string>
+    <string name="clear_findings_confirm_title">Очистити знахідки?</string>
+    <string name="clear_findings_confirm_msg">Уся історія знайдених оголошень буде видалена.</string>
+    <string name="clear_findings_cleared">Історію знахідок очищено</string>
+
+    <!-- Watches Tab -->
+    <string name="watches_empty_title">Немає відстежуваних радарів</string>
+    <string name="watches_empty_subtitle">Натисніть «+», щоб створити перший пошуковий запит.</string>
+    <string name="action_add_watch">Додати радар</string>
+    <string name="action_edit_watch">Редагувати</string>
+    <string name="action_duplicate">Дублювати</string>
+    <string name="delete_watch_confirm_title">Видалити радар?</string>
+    <string name="delete_watch_confirm_msg">Ви впевнені, що хочете видалити «%1$s» та всі його знахідки?</string>
+    <string name="watch_status_active">Активний</string>
+    <string name="watch_status_paused">На паузі</string>
+    <string name="watch_last_success">Успішно: %1$s</string>
+    <string name="watch_never_checked">Опитувань ще не було</string>
+    <string name="watch_last_error_label">Помилка: %1$s</string>
+    <string name="watch_findings_count">Знахідок: %1$d</string>
+    <string name="watch_price_range">Ціна: %1$s — %2$s %3$s</string>
+    <string name="watch_price_from">від %1$s %2$s</string>
+    <string name="watch_price_to">до %1$s %2$s</string>
+    <string name="watch_any_price">будь-яка ціна</string>
+    <string name="watch_all_ukraine">Уся Україна</string>
+    <string name="watch_stopwords_label">Стоп-слова: %1$s</string>
+    <string name="watch_mustwords_label">Обов\'язкові: %1$s</string>
+    <string name="watch_mode_new_pushup">Режим: Нові + Підняті</string>
+    <string name="watch_mode_new_only">Режим: Лише нові</string>
+    <string name="watch_created_toast">Радар «%1$s» запущено у відстеження!</string>
+    <string name="watch_updated_toast">Радар «%1$s» оновлено</string>
+    <string name="watch_duplicated_toast">Створено копію радара «%1$s»</string>
+    <string name="watch_duplicate_title">%1$s (копія)</string>
+    <string name="watch_snoozed_until">Снуз до %1$s</string>
+
+    <!-- Edit/Add Watch Dialog/BottomSheet -->
+    <string name="dialog_create_watch_title">Створення радара</string>
+    <string name="dialog_edit_watch_title">Редагування радара</string>
+    <string name="field_url_import_hint">Вставити посилання olx.ua</string>
+    <string name="action_import_url">Розпізнати</string>
+    <string name="url_imported_success">Параметри з посилання застосовано!</string>
+    <string name="url_import_failed">Не вдалося розібрати посилання</string>
+    <string name="field_query_hint">Пошуковий запит (наприклад: iPhone 13)</string>
+    <string name="field_query_error_empty">Запит не може бути порожнім</string>
+    <string name="field_price_from_hint">Ціна від</string>
+    <string name="field_price_to_hint">Ціна до</string>
+    <string name="field_currency_hint">Валюта</string>
+    <string name="field_include_no_price">Показувати оголошення без ціни</string>
+    <string name="field_stop_words_hint">Стоп-слова (через кому)</string>
+    <string name="field_must_words_hint">Обов\'язкові слова (через кому)</string>
+    <string name="field_owner_type_hint">Тип продавця</string>
+    <string name="owner_type_all">Усі продавці</string>
+    <string name="owner_type_private">Приватна особа</string>
+    <string name="owner_type_business">Бізнес</string>
+    <string name="field_state_hint">Стан товару</string>
+    <string name="state_all">Будь-який стан</string>
+    <string name="state_new">Нове</string>
+    <string name="state_used">Б/в</string>
+    <string name="field_interval_hint">Інтервал опитування (сек)</string>
+    <string name="interval_default">За замовчуванням (глобальний)</string>
+    <string name="field_snooze_hint">Снуз (заглушити сповіщення)</string>
+    <string name="snooze_none">Не глушити</string>
+    <string name="snooze_1h">На 1 годину</string>
+    <string name="snooze_4h">На 4 години</string>
+    <string name="snooze_1d">На 1 день</string>
+    <string name="action_check_now">Перевірити</string>
+    <string name="action_save">Зберегти</string>
+    <string name="action_cancel">Скасувати</string>
+    <string name="checking_listings_title">Попередній перегляд оголошень на OLX:</string>
+    <string name="checking_no_results">Оголошень не знайдено</string>
+    <string name="checking_error">Помилка перевірки: %1$s</string>
+
+    <!-- Status & Diagnostics Tab -->
+    <string name="status_service_header">Служба моніторингу</string>
+    <string name="status_service_running_247">Статус: Активно працює (24/7)</string>
+    <string name="status_checks_count">Виконано перевірок: %1$d</string>
+    <string name="status_last_poll">Останнє опитування: %1$s</string>
+    <string name="status_background_header">Робота у фоні</string>
+    <string name="status_background_desc">Щоб Android не зупиняв службу при вимкненому екрані, вимкніть оптимізацію батареї для додатка.</string>
+    <string name="action_battery_optimization">Налаштування батареї</string>
+    <string name="status_battery_not_supported">Не вдалося відкрити налаштування батареї</string>
+    <string name="status_quiet_hours_header">Тихі години</string>
+    <string name="status_quiet_hours_enable">Не надсилати сповіщення вночі (знахідки зберігаються)</string>
+    <string name="status_quiet_hours_from">Початок: %1$02d:%2$02d</string>
+    <string name="status_quiet_hours_to">Кінець: %1$02d:%2$02d</string>
+    <string name="status_interval_header">Глобальний інтервал опитування</string>
+    <string name="status_interval_desc">Рекомендується 25 сек для швидкої реакції на нові оголошення.</string>
+    <string name="interval_15s">15 сек</string>
+    <string name="interval_25s">25 сек</string>
+    <string name="interval_60s">60 сек</string>
+    <string name="interval_300s">5 хв (Еко)</string>
+    <string name="status_per_watch_diagnostics">Діагностика радарів</string>
+    <string name="status_watch_code_ok">HTTP 200 OK</string>
+    <string name="status_watch_no_errors">Помилок немає</string>
+
+    <!-- Accessibility Descriptions -->
+    <string name="cd_delete_finding">Видалити знахідку</string>
+    <string name="cd_delete_watch">Видалити радар</string>
+    <string name="cd_duplicate_watch">Дублювати радар</string>
+    <string name="cd_edit_watch">Редагувати радар</string>
+    <string name="cd_filter_chip">Фільтр за радаром</string>
+    <string name="cd_toggle_watch">Увімкнути або вимкнути радар</string>
+    <string name="cd_finding_photo">Фото товару</string>
+    <string name="cd_add_watch_fab">Створити новий радар</string>
+
+    <!-- Groq Vision AI Strings -->
+    <string name="ai_status_match">Підходить</string>
+    <string name="ai_status_needs_review">Сумнівне</string>
+    <string name="ai_status_rejected">Відхилено</string>
+    <string name="ai_status_analyzing">AI аналіз…</string>
+    <string name="ai_status_error">Помилка AI</string>
+    <string name="ai_settings_header">Groq Vision AI</string>
+    <string name="ai_settings_desc">Інтелектуальний аналіз фото та опису за допомогою Groq Vision LPU.</string>
+    <string name="ai_enable_switch">Увімкнути Groq Vision AI</string>
+    <string name="ai_api_key_label">Groq API Key</string>
+    <string name="ai_api_key_configured">Ключ налаштовано: %1$s</string>
+    <string name="ai_api_key_not_configured">Ключ не вказано</string>
+    <string name="ai_model_label">Модель Vision</string>
+    <string name="ai_confidence_threshold_label">Поріг релевантності (Confidence)</string>
+    <string name="ai_max_photos_label">Кількість фото для аналізу</string>
+    <string name="ai_check_suspicious_label">Виявляти підозрілі оголошення</string>
+    <string name="ai_strict_mode_label">Суворий режим (не зберігати відхилені)</string>
+    <string name="ai_manual_review_label">Режим ручної перевірки (зберігати сумнівні)</string>
+    <string name="ai_max_concurrent_label">Паралельних запитів до API</string>
+    <string name="ai_timeout_label">Таймаут запиту до API</string>
+    <string name="action_test_groq_api">Перевірити Groq API</string>
+    <string name="action_change_api_key">Змінити API ключ</string>
+    <string name="ai_test_success">Успішно: Groq API підключено!</string>
+    <string name="ai_test_failed">Помилка Groq API: %1$s</string>
+    <string name="dialog_set_api_key_title">Groq API Key</string>
+    <string name="dialog_set_api_key_hint">Введіть ключ gsk_...</string>
+    <string name="action_save_api_key">Зберегти</string>
+    <string name="ai_details_dialog_title">AI Аналіз оголошення</string>
+    <string name="ai_score_label">AI Score: %1$d%%</string>
+    <string name="ai_detected_product_label">Визначений товар:</string>
+    <string name="ai_detected_model_label">Модель:</string>
+    <string name="ai_photo_match_label">Відповідність фото заголовку:</string>
+    <string name="ai_photo_match_yes">Так, фото відповідає</string>
+    <string name="ai_photo_match_no">Фото НЕ відповідає заголовку!</string>
+    <string name="ai_condition_label">Стан:</string>
+    <string name="ai_completeness_label">Комплектність:</string>
+    <string name="ai_defects_label">Видимі дефекти:</string>
+    <string name="ai_no_defects">Дефектів не виявлено</string>
+    <string name="ai_reasons_label">Причини рішення AI:</string>
+    <string name="ai_reject_reason_label">Причина відхилення:</string>
+    <string name="ai_raw_json_label">Сира JSON відповідь AI:</string>
+    <string name="action_view_ai_details">Детальніше про AI аналіз</string>
+    <string name="action_view_ai_details_short">AI Деталі ›</string>
+    <string name="ai_provider_label">AI Провайдер</string>
+    <string name="ai_provider_value">Groq (api.groq.com/openai/v1)</string>
+    <string name="action_reset_default_key">Скинути</string>
+    <string name="ai_api_key_reset">Ключ скинуто на значення за замовчуванням</string>
+
+    <!-- Rejected Tab & Details Strings -->
+    <string name="tab_rejected">Відхилені</string>
+    <string name="rejected_subtitle">Відсіяні AI фільтром</string>
+    <string name="rejected_empty_title">Немає відхилених знахідок</string>
+    <string name="rejected_empty_subtitle">Оголошення, відхилені AI фільтром, з\'являться тут.</string>
+    <string name="ai_notify_rejected_label">Сповіщення про відхилені</string>
+    <string name="ai_notify_rejected_desc">Надсилати сповіщення для оголошень, відхилених AI</string>
+    <string name="finding_details_title">Інформація про знахідку</string>
+    <string name="sheet_title_description">Опис товару</string>
+    <string name="sheet_no_description">Продавець не надав опис</string>
+    <string name="sheet_action_share">Поділитися</string>
+    <string name="sheet_ai_analysis_title">Результати AI-аналізу</string>
+    <string name="action_details">Детальніше</string>
+    <string name="action_details_short">Інфо</string>
+</resources>

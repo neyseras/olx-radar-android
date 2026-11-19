@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Cybernetic Telemetry Dark Design System -->
+    <!-- Surfaces & Canvas Layering -->
+    <color name="background">#0B1326</color>
+    <color name="surface">#0B1326</color>
+    <color name="surface_dim">#0B1326</color>
+    <color name="surface_bright">#31394D</color>
+    <color name="surface_container_lowest">#060E20</color>
+    <color name="surface_container_low">#131B2E</color>
+    <color name="surface_container">#171F33</color>
+    <color name="surface_container_high">#222A3D</color>
+    <color name="surface_container_highest">#2D3449</color>
+    <color name="surface_variant">#2D3449</color>
+    <color name="card_stroke">#2D3449</color>
+    <color name="card_stroke_focused">#06B6D4</color>
+    <color name="outline">#869397</color>
+    <color name="outline_variant">#3D494C</color>
+
+    <!-- Typography -->
+    <color name="text_primary">#DAE2FD</color>
+    <color name="text_secondary">#BCC9CD</color>
+    <color name="on_surface">#DAE2FD</color>
+    <color name="on_surface_variant">#BCC9CD</color>
+    <color name="white">#FFFFFF</color>
+
+    <!-- Primary: Electric Cyan -->
+    <color name="primary">#4CD7F6</color>
+    <color name="primary_variant">#0B1326</color>
+    <color name="primary_container">#06B6D4</color>
+    <color name="on_primary">#003640</color>
+    <color name="on_primary_container">#00424F</color>
+    <color name="accent">#4CD7F6</color>
+    <color name="accent_dark">#06B6D4</color>
+
+    <!-- Secondary: Radar Emerald -->
+    <color name="secondary">#4EDEA3</color>
+    <color name="secondary_container">#00A572</color>
+    <color name="on_secondary">#003824</color>
+    <color name="on_secondary_container">#00311F</color>
+
+    <!-- Tertiary: Kinetic Amber -->
+    <color name="tertiary">#FFB95F</color>
+    <color name="tertiary_container">#E79400</color>
+    <color name="on_tertiary">#472A00</color>
+    <color name="on_tertiary_container">#563400</color>
+
+    <!-- Error / Critical / Rejected: Crimson -->
+    <color name="error">#FFB4AB</color>
+    <color name="error_container">#93000A</color>
+    <color name="on_error">#690005</color>
+    <color name="on_error_container">#FFDAD6</color>
+    <color name="danger">#FFB4AB</color>
+
+    <!-- Badges & Chips -->
+    <color name="badge_new">#4CD7F6</color>
+    <color name="badge_pushup">#FFB95F</color>
+
+    <!-- Translucent overlays & alpha tints -->
+    <color name="primary_alpha_15">#264CD7F6</color>
+    <color name="primary_alpha_20">#334CD7F6</color>
+    <color name="secondary_alpha_15">#264EDEA3</color>
+    <color name="secondary_alpha_20">#334EDEA3</color>
+    <color name="tertiary_alpha_15">#26FFB95F</color>
+    <color name="tertiary_alpha_20">#33FFB95F</color>
+    <color name="surface_overlay_80">#CC060E20</color>
+    <color name="surface_overlay_90">#E6060E20</color>
+
+    <!-- AI Inference Status Colors -->
+    <color name="ai_match">#4EDEA3</color>
+    <color name="ai_needs_review">#FFB95F</color>
+    <color name="ai_rejected">#FFB4AB</color>
+    <color name="ai_analyzing">#4CD7F6</color>
+    <color name="ai_error">#869397</color>
+</resources>

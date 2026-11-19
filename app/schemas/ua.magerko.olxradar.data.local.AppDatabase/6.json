@@ -1,0 +1,444 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 6,
+    "identityHash": "09f03534a31d01143bcf6fdf0f6c36b2",
+    "entities": [
+      {
+        "tableName": "watches",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `query` TEXT NOT NULL, `price_from` INTEGER, `price_to` INTEGER, `city_id` INTEGER, `city_name` TEXT, `category_id` INTEGER, `owner_type` TEXT, `state` TEXT, `stop_words` TEXT NOT NULL, `notify_mode` TEXT NOT NULL, `is_active` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `initialized` INTEGER NOT NULL, `last_success_at` INTEGER, `last_error` TEXT, `last_http_code` INTEGER, `include_no_price` INTEGER NOT NULL, `price_currency` TEXT NOT NULL DEFAULT 'UAH', `must_words` TEXT NOT NULL, `must_words_mode` TEXT NOT NULL DEFAULT 'any', `snoozed_until` INTEGER, `interval_sec_override` INTEGER, `category_preset` TEXT NOT NULL DEFAULT 'any', `condition_target` TEXT NOT NULL DEFAULT 'any', `condition_threshold` INTEGER NOT NULL DEFAULT 0)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "query",
+            "columnName": "query",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "priceFrom",
+            "columnName": "price_from",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "priceTo",
+            "columnName": "price_to",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cityId",
+            "columnName": "city_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cityName",
+            "columnName": "city_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "category_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "ownerType",
+            "columnName": "owner_type",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "stopWords",
+            "columnName": "stop_words",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notifyMode",
+            "columnName": "notify_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "is_active",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "initialized",
+            "columnName": "initialized",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSuccessAt",
+            "columnName": "last_success_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "last_error",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastHttpCode",
+            "columnName": "last_http_code",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "includeNoPrice",
+            "columnName": "include_no_price",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "priceCurrency",
+            "columnName": "price_currency",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'UAH'"
+          },
+          {
+            "fieldPath": "mustWords",
+            "columnName": "must_words",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mustWordsMode",
+            "columnName": "must_words_mode",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'any'"
+          },
+          {
+            "fieldPath": "snoozedUntil",
+            "columnName": "snoozed_until",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "intervalSecOverride",
+            "columnName": "interval_sec_override",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "categoryPreset",
+            "columnName": "category_preset",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'any'"
+          },
+          {
+            "fieldPath": "conditionTarget",
+            "columnName": "condition_target",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'any'"
+          },
+          {
+            "fieldPath": "conditionThreshold",
+            "columnName": "condition_threshold",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "findings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `watch_id` INTEGER NOT NULL, `listing_id` INTEGER NOT NULL, `title` TEXT NOT NULL, `description` TEXT NOT NULL DEFAULT '', `price` INTEGER, `currency` TEXT, `city_name` TEXT NOT NULL, `url` TEXT NOT NULL, `photo_url` TEXT, `reason` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `found_at` INTEGER NOT NULL, `is_read` INTEGER NOT NULL, `condition_score` INTEGER, `ai_score` INTEGER, `ai_status` TEXT, `ai_product` TEXT, `ai_model` TEXT, `ai_photo_match` INTEGER, `ai_reasons` TEXT, `ai_reject_reason` TEXT, `ai_details_json` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watchId",
+            "columnName": "watch_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "listingId",
+            "columnName": "listing_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "price",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "cityName",
+            "columnName": "city_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "url",
+            "columnName": "url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "photoUrl",
+            "columnName": "photo_url",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "reason",
+            "columnName": "reason",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "foundAt",
+            "columnName": "found_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isRead",
+            "columnName": "is_read",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conditionScore",
+            "columnName": "condition_score",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "aiScore",
+            "columnName": "ai_score",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "aiStatus",
+            "columnName": "ai_status",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "aiProduct",
+            "columnName": "ai_product",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "aiModel",
+            "columnName": "ai_model",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "aiPhotoMatch",
+            "columnName": "ai_photo_match",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "aiReasons",
+            "columnName": "ai_reasons",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "aiRejectReason",
+            "columnName": "ai_reject_reason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "aiDetailsJson",
+            "columnName": "ai_details_json",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_findings_found_at",
+            "unique": false,
+            "columnNames": [
+              "found_at"
+            ],
+            "orders": [
+              "DESC"
+            ],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_findings_found_at` ON `${TABLE_NAME}` (`found_at` DESC)"
+          },
+          {
+            "name": "idx_findings_watch_listing",
+            "unique": false,
+            "columnNames": [
+              "watch_id",
+              "listing_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_findings_watch_listing` ON `${TABLE_NAME}` (`watch_id`, `listing_id`)"
+          },
+          {
+            "name": "idx_findings_watch_id",
+            "unique": false,
+            "columnNames": [
+              "watch_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_findings_watch_id` ON `${TABLE_NAME}` (`watch_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "seen_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`watch_id` INTEGER NOT NULL, `listing_id` INTEGER NOT NULL, `last_pushed_at` INTEGER, `last_price` INTEGER, `added_at` INTEGER NOT NULL, PRIMARY KEY(`watch_id`, `listing_id`))",
+        "fields": [
+          {
+            "fieldPath": "watchId",
+            "columnName": "watch_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "listingId",
+            "columnName": "listing_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastPushedAt",
+            "columnName": "last_pushed_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastPrice",
+            "columnName": "last_price",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "added_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "watch_id",
+            "listing_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_seen_items_lookup",
+            "unique": false,
+            "columnNames": [
+              "watch_id",
+              "listing_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_seen_items_lookup` ON `${TABLE_NAME}` (`watch_id`, `listing_id`)"
+          },
+          {
+            "name": "idx_seen_items_watch_added",
+            "unique": false,
+            "columnNames": [
+              "watch_id",
+              "added_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_seen_items_watch_added` ON `${TABLE_NAME}` (`watch_id`, `added_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "ai_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`listing_id` INTEGER NOT NULL, `result_json` TEXT NOT NULL, `created_at` INTEGER NOT NULL, PRIMARY KEY(`listing_id`))",
+        "fields": [
+          {
+            "fieldPath": "listingId",
+            "columnName": "listing_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resultJson",
+            "columnName": "result_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "listing_id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '09f03534a31d01143bcf6fdf0f6c36b2')"
+    ]
+  }
+}
