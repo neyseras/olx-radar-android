@@ -16,8 +16,8 @@ android {
         applicationId = "ua.magerko.olxradar"
         minSdk = 24
         targetSdk = 34
-        versionCode = 261119066
-        versionName = "261119066"
+        versionCode = 261119066   // схема нумерации версий (ГГММДД + счетчик).
+        versionName = "261119066" // схема нумерации версий (ГГММДД + счетчик).
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -1103,7 +1103,7 @@ fun StatusAiSettingsScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = "OLX Radar · версия ${BuildConfig.VERSION_NAME} (сборка ${BuildConfig.VERSION_CODE})",
+                            text = "OLX Radar · версия ${BuildConfig.VERSION_NAME}", // схема нумерации версий (ГГММДД + счетчик).
                             color = CyberneticOnSurface,
                             fontSize = 13.sp
                         )
