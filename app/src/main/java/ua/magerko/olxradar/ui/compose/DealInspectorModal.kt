@@ -1,9 +1,14 @@
 package ua.magerko.olxradar.ui.compose
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.text.Html
 import android.text.format.DateUtils
+import android.widget.Toast
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,24 +26,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import ua.magerko.olxradar.ai.AiAnalysisResult
 import ua.magerko.olxradar.data.model.ConditionAnalyzer
 import ua.magerko.olxradar.data.model.Finding
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DealInspectorModal(
     finding: Finding,
+    watchTitle: String? = null,
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     onDismiss: () -> Unit,
     onDelete: () -> Unit = {},
@@ -47,6 +56,83 @@ fun DealInspectorModal(
     val context = LocalContext.current
     var isDescExpanded by remember { mutableStateOf(false) }
     var isFavorite by remember { mutableStateOf(false) }
+
+    val localeRu = remember { Locale("ru") }
+
+    val createdDateFormatted = remember(finding.createdAt) {
+        if (finding.createdAt > 0) {
+            val sdf = SimpleDateFormat("d MMMM yyyy, HH:mm", localeRu)
+            sdf.format(Date(finding.createdAt))
+        } else {
+            "Не указана"
+        }
+    }
+
+    val foundDateFormatted = remember(finding.foundAt) {
+        if (finding.foundAt > 0) {
+            val sdf = SimpleDateFormat("d MMMM yyyy, HH:mm:ss", localeRu)
+            sdf.format(Date(finding.foundAt))
+        } else {
+            "Не указано"
+        }
+    }
+
+    val relativeFoundTime = remember(finding.foundAt) {
+        if (finding.foundAt > 0) {
+            DateUtils.getRelativeTimeSpanString(
+                finding.foundAt,
+                System.currentTimeMillis(),
+                DateUtils.MINUTE_IN_MILLIS,
+                DateUtils.FORMAT_ABBREV_RELATIVE
+            ).toString()
+        } else {
+            ""
+        }
+    }
+
+    val parsedAiResult = remember(finding.aiDetailsJson) {
+        finding.aiDetailsJson?.let { AiAnalysisResult.fromJson(it) }
+    }
+
+    val cleanDesc = remember(finding.description) {
+        if (finding.description.isBlank()) {
+            "Продавец не указал подробного текстового описания. Нажмите кнопку «Открыть на OLX», чтобы просмотреть полное объявление и связаться с продавцом напрямую."
+        } else {
+            try {
+                val htmlParsed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    Html.fromHtml(finding.description, Html.FROM_HTML_MODE_COMPACT).toString()
+                } else {
+                    @Suppress("DEPRECATION")
+                    Html.fromHtml(finding.description).toString()
+                }
+                htmlParsed.trim()
+            } catch (e: Exception) {
+                finding.description.replace(Regex("<[^>]*>"), " ").trim()
+            }
+        }
+    }
+
+    val clipboardManager = remember {
+        context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+    }
+
+    fun copyToClipboard(text: String, label: String) {
+        val clip = ClipData.newPlainText(label, text)
+        clipboardManager?.setPrimaryClip(clip)
+        Toast.makeText(context, "$label скопировано в буфер", Toast.LENGTH_SHORT).show()
+    }
+
+    fun openUrlDirectly() {
+        onOpenUrl(finding.url)
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(finding.url)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -82,40 +168,126 @@ fun DealInspectorModal(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 6.dp)
             ) {
-                // Telemetry Top Bar: Listing ID + Active status
+                // Top telemetry bar: Listing ID + Radar badge + AI status + Close
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 10.dp),
+                        .padding(bottom = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "№ ${finding.listingId}",
-                        color = CyberneticOnSurfaceVariant,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(CyberneticSecondary)
-                        )
-                        Text(
-                            text = if (finding.aiStatus == "rejected") "Отклонено ИИ" else "Активно",
-                            color = if (finding.aiStatus == "rejected") CyberneticError else CyberneticSecondary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = CyberneticSurfaceContainerHigh,
+                            modifier = Modifier.clickable {
+                                copyToClipboard(finding.listingId.toString(), "ID объявления")
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "№ ${finding.listingId}",
+                                    color = CyberneticPrimary,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Копировать ID",
+                                    tint = CyberneticPrimary.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
+
+                        if (!watchTitle.isNullOrBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = CyberneticPrimary.copy(alpha = 0.12f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Radar,
+                                        contentDescription = null,
+                                        tint = CyberneticPrimary,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = watchTitle,
+                                        color = CyberneticPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val (statusBadgeText, statusBadgeColor) = when {
+                            finding.aiStatus == "rejected" -> "Отклонено ИИ" to CyberneticError
+                            finding.aiStatus == "error" -> "Ошибка ИИ" to CyberneticTertiary
+                            finding.aiStatus == "analyzing" -> "Анализ ИИ..." to CyberneticPrimary
+                            finding.aiScore != null -> "ИИ: ${finding.aiScore}%" to CyberneticSecondary
+                            else -> "Активно" to CyberneticSecondary
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = statusBadgeColor.copy(alpha = 0.15f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(statusBadgeColor)
+                                )
+                                Text(
+                                    text = statusBadgeText,
+                                    color = statusBadgeColor,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Закрыть",
+                                tint = CyberneticOnSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
 
-                // Image Banner with coil
+                // Image Banner
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -135,40 +307,79 @@ fun DealInspectorModal(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = null,
-                                tint = CyberneticOutline,
-                                modifier = Modifier.size(48.dp)
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Image,
+                                    contentDescription = null,
+                                    tint = CyberneticOutline,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Text(
+                                    text = "Фото лота отсутствует",
+                                    color = CyberneticOnSurfaceVariant,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Condition Badge overlay
+                    if (finding.conditionScore != null) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = CyberneticSurfaceContainerLowest.copy(alpha = 0.88f),
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.VerifiedUser,
+                                    contentDescription = null,
+                                    tint = if (finding.conditionScore >= 60) CyberneticSecondary else CyberneticError,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = ConditionAnalyzer.explainScore(finding.conditionScore),
+                                    color = if (finding.conditionScore >= 60) CyberneticSecondary else CyberneticError,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
 
                     // Photo counter chip
-                    Box(
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = CyberneticSurfaceContainerLowest.copy(alpha = 0.85f),
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(10.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(CyberneticSurfaceContainerLowest.copy(alpha = 0.85f))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(CyberneticPrimary)
+                            Icon(
+                                imageVector = Icons.Default.PhotoLibrary,
+                                contentDescription = null,
+                                tint = CyberneticPrimary,
+                                modifier = Modifier.size(12.dp)
                             )
                             Text(
-                                text = "1/1",
+                                text = "OLX Фото",
                                 color = CyberneticOnSurfaceVariant,
                                 fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
@@ -176,14 +387,15 @@ fun DealInspectorModal(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Price and Discount Row
+                // Price and Quick Action Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val priceFormatted = if (finding.price != null && finding.price > 0) {
-                        "${NumberFormat.getNumberInstance(Locale("uk", "UA")).format(finding.price)} ₴"
+                        val formattedNum = NumberFormat.getNumberInstance(Locale("uk", "UA")).format(finding.price)
+                        "$formattedNum ${finding.currency ?: "₴"}"
                     } else {
                         "Договорная"
                     }
@@ -195,38 +407,27 @@ fun DealInspectorModal(
                         letterSpacing = (-0.5).sp
                     )
 
-                }
-
-
-                // «Сенсор состояния»: badge of the detected condition
-                if (finding.conditionScore != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = if (finding.conditionScore >= 60) {
-                            CyberneticSecondary.copy(alpha = 0.15f)
-                        } else {
-                            CyberneticError.copy(alpha = 0.15f)
-                        }
+                    Button(
+                        onClick = { openUrlDirectly() },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = CyberneticPrimaryContainer.copy(alpha = 0.25f),
+                            contentColor = CyberneticPrimary
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.height(36.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.VerifiedUser,
-                                contentDescription = null,
-                                tint = if (finding.conditionScore >= 60) CyberneticSecondary else CyberneticError,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Text(
-                                text = ConditionAnalyzer.explainScore(finding.conditionScore),
-                                color = if (finding.conditionScore >= 60) CyberneticSecondary else CyberneticError,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                        Text(
+                            text = "OLX лот",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.OpenInNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
                     }
                 }
 
@@ -241,9 +442,9 @@ fun DealInspectorModal(
                     lineHeight = 24.sp
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Location & Meta Info
+                // Location & Meta Info Chips Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -256,40 +457,34 @@ fun DealInspectorModal(
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = finding.cityName.ifBlank { "Украина" },
+                        text = finding.cityName.ifBlank { "Вся Украина" },
                         color = CyberneticOnSurface,
-                        fontSize = 12.sp
-                    )
-                    Text(
-                        text = "•",
-                        color = CyberneticOutlineVariant
-                    )
-                    val timeAgo = DateUtils.getRelativeTimeSpanString(
-                        finding.foundAt,
-                        System.currentTimeMillis(),
-                        DateUtils.MINUTE_IN_MILLIS,
-                        DateUtils.FORMAT_ABBREV_RELATIVE
-                    ).toString()
-                    Text(
-                        text = timeAgo,
-                        color = CyberneticOnSurfaceVariant,
-                        fontSize = 12.sp
-                    )
-                    Text(
-                        text = "•",
-                        color = CyberneticOutlineVariant
-                    )
-                    Icon(
-                        imageVector = Icons.Default.Star,
-                        contentDescription = null,
-                        tint = CyberneticTertiary,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Text(
-                        text = "Продавец 5★",
-                        color = CyberneticTertiary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
+                    )
+
+                    Text(
+                        text = "•",
+                        color = CyberneticOutlineVariant
+                    )
+
+                    if (relativeFoundTime.isNotBlank()) {
+                        Text(
+                            text = relativeFoundTime,
+                            color = CyberneticOnSurfaceVariant,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = "•",
+                            color = CyberneticOutlineVariant
+                        )
+                    }
+
+                    Text(
+                        text = if (finding.reason == "pushup") "ТОП / Pushup" else "Свежее",
+                        color = if (finding.reason == "pushup") CyberneticTertiary else CyberneticSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
 
@@ -312,7 +507,7 @@ fun DealInspectorModal(
                                 imageVector = Icons.Default.LocalShipping,
                                 contentDescription = null,
                                 tint = CyberneticSecondary,
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(13.dp)
                             )
                             Text(
                                 text = "OLX Доставка",
@@ -336,7 +531,7 @@ fun DealInspectorModal(
                                 imageVector = Icons.Default.VerifiedUser,
                                 contentDescription = null,
                                 tint = CyberneticPrimary,
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(13.dp)
                             )
                             Text(
                                 text = "Безопасная сделка",
@@ -350,11 +545,25 @@ fun DealInspectorModal(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // GROQ VISION AI HERO CARD
+                // GROQ VISION AI CARD (RICH AI DETAILS OR INFORMATIVE STATUS)
+                val hasAiSuccess = finding.aiScore != null || (parsedAiResult != null && parsedAiResult.confidence > 0)
+                val isAiRejected = finding.aiStatus == "rejected"
+                val isAiError = finding.aiStatus == "error"
+                val isAiAnalyzing = finding.aiStatus == "analyzing"
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, CyberneticOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(16.dp)),
+                        .border(
+                            1.dp,
+                            when {
+                                isAiRejected -> CyberneticError.copy(alpha = 0.5f)
+                                isAiError -> CyberneticTertiary.copy(alpha = 0.5f)
+                                hasAiSuccess -> CyberneticSecondary.copy(alpha = 0.4f)
+                                else -> CyberneticOutlineVariant.copy(alpha = 0.35f)
+                            },
+                            RoundedCornerShape(16.dp)
+                        ),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = CyberneticSurfaceContainerLow)
                 ) {
@@ -376,140 +585,331 @@ fun DealInspectorModal(
                                     modifier = Modifier
                                         .size(34.dp)
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(CyberneticPrimary.copy(alpha = 0.15f)),
+                                        .background(
+                                            when {
+                                                isAiRejected -> CyberneticError.copy(alpha = 0.15f)
+                                                isAiError -> CyberneticTertiary.copy(alpha = 0.15f)
+                                                hasAiSuccess -> CyberneticSecondary.copy(alpha = 0.15f)
+                                                else -> CyberneticPrimary.copy(alpha = 0.15f)
+                                            }
+                                        ),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
+                                        imageVector = when {
+                                            isAiRejected -> Icons.Default.Warning
+                                            isAiError -> Icons.Default.ErrorOutline
+                                            hasAiSuccess -> Icons.Default.AutoAwesome
+                                            else -> Icons.Default.FilterList
+                                        },
                                         contentDescription = null,
-                                        tint = CyberneticPrimary,
+                                        tint = when {
+                                            isAiRejected -> CyberneticError
+                                            isAiError -> CyberneticTertiary
+                                            hasAiSuccess -> CyberneticSecondary
+                                            else -> CyberneticPrimary
+                                        },
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
                                 Column {
                                     Text(
-                                        text = "Результат проверки Groq Vision",
+                                        text = when {
+                                            isAiRejected -> "Отклонено Groq Vision"
+                                            isAiError -> "ИИ-анализ: Ошибка проверки API"
+                                            isAiAnalyzing -> "Groq Vision: Анализ лота..."
+                                            hasAiSuccess -> "Результат проверки Groq Vision"
+                                            else -> "Фильтр радара (Базовый)"
+                                        },
                                         color = CyberneticOnSurface,
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = "Анализ фото и соответствия",
+                                        text = when {
+                                            isAiRejected -> "Не соответствует условиям поиска"
+                                            isAiError -> "Сбой связи или исчерпан лимит Groq"
+                                            isAiAnalyzing -> "ИИ сопоставляет фото и описание..."
+                                            hasAiSuccess -> "Анализ фото, комплектации и соответствия"
+                                            else -> "Проверка по ключевым словам и цене"
+                                        },
                                         color = CyberneticOnSurfaceVariant,
                                         fontSize = 11.sp
                                     )
                                 }
                             }
 
-if (finding.aiScore != null) {
+                            if (hasAiSuccess) {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = CyberneticSecondary.copy(alpha = 0.15f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = CyberneticSecondary,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Text(
+                                            text = "Проверено ИИ",
+                                            color = CyberneticSecondary,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Content branch 1: AI evaluated successfully
+                        if (hasAiSuccess) {
+                            val score = finding.aiScore ?: parsedAiResult?.confidence ?: 0
+
                             Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = CyberneticSecondary.copy(alpha = 0.15f)
+                                shape = RoundedCornerShape(12.dp),
+                                color = CyberneticSurfaceContainer
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (score >= 70) CyberneticSecondary.copy(alpha = 0.2f)
+                                                else CyberneticTertiary.copy(alpha = 0.2f)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "$score%",
+                                            color = if (score >= 70) CyberneticSecondary else CyberneticTertiary,
+                                            fontSize = 13.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = if (score >= 80) "ВЫСОКАЯ ТОЧНОСТЬ" else "ТРЕБУЕТ ВНИМАНИЯ",
+                                            color = if (score >= 80) CyberneticSecondary else CyberneticTertiary,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 0.5.sp
+                                        )
+                                        Text(
+                                            text = if (score >= 80)
+                                                "Товар и фото полностью соответствуют запросу"
+                                            else
+                                                "Возможны неточности в спецификации или неполная комплектация",
+                                            color = CyberneticOnSurfaceVariant,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Detected Product & Model
+                            val detectedProduct = finding.aiProduct ?: parsedAiResult?.detectedProduct
+                            val detectedModel = finding.aiModel ?: parsedAiResult?.detectedModel
+
+                            if (!detectedProduct.isNullOrBlank() || !detectedModel.isNullOrBlank()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(CyberneticSurfaceContainer.copy(alpha = 0.6f))
+                                        .padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (!detectedProduct.isNullOrBlank()) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "Товар:",
+                                                color = CyberneticOnSurfaceVariant,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = detectedProduct,
+                                                color = CyberneticOnSurface,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                    if (!detectedModel.isNullOrBlank()) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "Модель:",
+                                                color = CyberneticOnSurfaceVariant,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = detectedModel,
+                                                color = CyberneticPrimary,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Photo match status
+                            val photoMatch = finding.aiPhotoMatch ?: parsedAiResult?.photoMatchesTitle
+                            if (photoMatch != null) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            if (photoMatch) CyberneticSecondary.copy(alpha = 0.1f)
+                                            else CyberneticError.copy(alpha = 0.15f)
+                                        )
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.CheckCircle,
+                                        imageVector = if (photoMatch) Icons.Default.CheckCircle else Icons.Default.Warning,
                                         contentDescription = null,
-                                        tint = CyberneticSecondary,
-                                        modifier = Modifier.size(12.dp)
+                                        tint = if (photoMatch) CyberneticSecondary else CyberneticError,
+                                        modifier = Modifier.size(14.dp)
                                     )
                                     Text(
-                                        text = "Проверено ИИ",
-                                        color = CyberneticSecondary,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            }
-                        }
-
-                        // Accuracy Score Row (only real AI score)
-                        finding.aiScore?.let { score ->
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = CyberneticSurfaceContainer
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(CircleShape)
-                                        .background(CyberneticSecondary.copy(alpha = 0.2f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "$score%",
-                                        color = CyberneticSecondary,
-                                        fontSize = 13.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = if (score >= 80) "ВЫСОКАЯ ТОЧНОСТЬ" else "ТРЕБУЕТ ВНИМАНИЯ",
-                                        color = if (score >= 80) CyberneticSecondary else CyberneticTertiary,
+                                        text = if (photoMatch)
+                                            "Фото лота подтверждено: совпадает с описанием"
+                                        else
+                                            "Внимание: фото лота отличается от описания товара",
+                                        color = if (photoMatch) CyberneticSecondary else CyberneticError,
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 0.5.sp
-                                    )
-                                    Text(
-                                        text = if (score >= 80) "Все ключевые компоненты распознаны" else "Возможны скрытые дефекты или неточности",
-                                        color = CyberneticOnSurfaceVariant,
-                                        fontSize = 11.sp
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
-                        }
 
-                        // AI Checks List (only real AI reasons)
-                        val reasonsList = finding.aiReasons
-                            ?.split("\n", ";")
-                            ?.map { it.trim() }
-                            ?.filter { it.isNotBlank() }
-                            ?: emptyList()
-
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            reasonsList.forEach { reasonText ->
+                            // AI Condition & Completeness
+                            val aiCondition = parsedAiResult?.condition
+                            val aiCompleteness = parsedAiResult?.completeness
+                            if (!aiCondition.isNullOrBlank() || !aiCompleteness.isNullOrBlank()) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(CyberneticSurfaceContainer.copy(alpha = 0.6f))
                                         .padding(8.dp),
-                                    verticalAlignment = Alignment.Top,
+                                    verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.CheckCircle,
+                                        imageVector = Icons.Default.FactCheck,
                                         contentDescription = null,
-                                        tint = CyberneticSecondary,
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .padding(top = 2.dp)
+                                        tint = CyberneticPrimary,
+                                        modifier = Modifier.size(14.dp)
                                     )
                                     Text(
-                                        text = reasonText.trim(),
+                                        text = buildString {
+                                            if (!aiCondition.isNullOrBlank()) append("Состояние: $aiCondition")
+                                            if (!aiCondition.isNullOrBlank() && !aiCompleteness.isNullOrBlank()) append(" • ")
+                                            if (!aiCompleteness.isNullOrBlank()) append("Комплект: $aiCompleteness")
+                                        },
                                         color = CyberneticOnSurface,
-                                        fontSize = 12.sp,
-                                        lineHeight = 16.sp
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
 
-                            if (!finding.aiRejectReason.isNullOrBlank()) {
+                            // Visible defects (if detected by AI)
+                            val defects = parsedAiResult?.visibleDefects ?: emptyList()
+                            if (defects.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(CyberneticError.copy(alpha = 0.15f))
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.Top,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = CyberneticError,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = "Замеченные дефекты: ${defects.joinToString(", ")}",
+                                        color = CyberneticError,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+
+                            // AI Reasons checklist
+                            val reasonsList = remember(finding.aiReasons, parsedAiResult?.reasons) {
+                                val src = finding.aiReasons
+                                    ?: parsedAiResult?.reasons?.joinToString("\n• ", prefix = "• ")
+                                    ?: ""
+                                src.split("\n", ";")
+                                    .map { it.replace("•", "").trim() }
+                                    .filter { it.isNotBlank() }
+                            }
+
+                            if (reasonsList.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    reasonsList.forEach { reasonText ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(CyberneticSurfaceContainer.copy(alpha = 0.6f))
+                                                .padding(8.dp),
+                                            verticalAlignment = Alignment.Top,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = CyberneticSecondary,
+                                                modifier = Modifier
+                                                    .size(15.dp)
+                                                    .padding(top = 1.dp)
+                                            )
+                                            Text(
+                                                text = reasonText,
+                                                color = CyberneticOnSurface,
+                                                fontSize = 12.sp,
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Reject reason warning (if any)
+                            val reject = finding.aiRejectReason ?: parsedAiResult?.rejectReason
+                            if (!reject.isNullOrBlank()) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -523,20 +923,217 @@ if (finding.aiScore != null) {
                                         imageVector = Icons.Default.Warning,
                                         contentDescription = null,
                                         tint = CyberneticError,
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .padding(top = 2.dp)
+                                        modifier = Modifier.size(15.dp)
                                     )
                                     Text(
-                                        text = "Причина отклонения: ${finding.aiRejectReason}",
+                                        text = "Причина отклонения: $reject",
                                         color = CyberneticError,
                                         fontSize = 12.sp,
                                         lineHeight = 16.sp
                                     )
                                 }
                             }
+                        } else if (isAiRejected) {
+                            // Content branch 2: AI Rejected
+                            val reject = finding.aiRejectReason ?: parsedAiResult?.rejectReason ?: "Не соответствует ключевым критериям радара"
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(CyberneticError.copy(alpha = 0.12f))
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Cancel,
+                                        contentDescription = null,
+                                        tint = CyberneticError,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "Объявление отклонено ИИ",
+                                        color = CyberneticError,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    text = reject,
+                                    color = CyberneticOnSurface,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        } else if (isAiError) {
+                            // Content branch 3: AI Error
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(CyberneticTertiary.copy(alpha = 0.12f))
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = CyberneticTertiary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "ИИ-анализ временно недоступен",
+                                        color = CyberneticTertiary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    text = "Groq Vision не смог проанализировать объявление (возможно, исчерпан лимит или обновляется модель). Объявление добавлено по базовому совпадению текста и цены.",
+                                    color = CyberneticOnSurfaceVariant,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        } else {
+                            // Content branch 4: Baseline Radar Match (AI skipped or not run)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(CyberneticSurfaceContainer.copy(alpha = 0.6f))
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = CyberneticPrimary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "Совпадение по условиям радара",
+                                        color = CyberneticPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    text = "Объявление отобрано поисковым радаром по ключевым словам, цене и локации. Глубокий визуальный анализ Groq Vision для этого лота не запускался.",
+                                    color = CyberneticOnSurfaceVariant,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp
+                                )
+                            }
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // NEW: DETAILED SPECIFICATIONS & PARAMETERS CARD
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, CyberneticOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(16.dp)),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = CyberneticSurfaceContainerLow)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = CyberneticPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "Характеристики и параметры",
+                                color = CyberneticOnSurface,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Param 1: Radar
+                        InspectorParamRow(
+                            icon = Icons.Default.Radar,
+                            label = "Поисковый радар",
+                            value = watchTitle ?: "Радар #${finding.watchId}"
+                        )
+
+                        // Param 2: OLX ID
+                        InspectorParamRow(
+                            icon = Icons.Default.Tag,
+                            label = "Номер лота OLX",
+                            value = finding.listingId.toString(),
+                            onCopy = { copyToClipboard(finding.listingId.toString(), "ID объявления") }
+                        )
+
+                        // Param 3: Published on OLX
+                        InspectorParamRow(
+                            icon = Icons.Default.DateRange,
+                            label = "Опубликовано",
+                            value = createdDateFormatted
+                        )
+
+                        // Param 4: Discovered by Radar
+                        InspectorParamRow(
+                            icon = Icons.Default.Schedule,
+                            label = "Поймано радаром",
+                            value = "$foundDateFormatted (${relativeFoundTime})"
+                        )
+
+                        // Param 5: Location
+                        InspectorParamRow(
+                            icon = Icons.Default.LocationOn,
+                            label = "Локация / Город",
+                            value = finding.cityName.ifBlank { "Вся Украина" }
+                        )
+
+                        // Param 6: Condition Sensor
+                        if (finding.conditionScore != null) {
+                            InspectorParamRow(
+                                icon = Icons.Default.VerifiedUser,
+                                label = "Сенсор состояния",
+                                value = "${ConditionAnalyzer.explainScore(finding.conditionScore)} (${finding.conditionScore}%)"
+                            )
+                        }
+
+                        // Param 7: Reason / Event
+                        InspectorParamRow(
+                            icon = Icons.Default.TrendingUp,
+                            label = "Событие публикации",
+                            value = if (finding.reason == "pushup") "Поднято в ТОП (Pushup)" else "Свежее объявление"
+                        )
+
+                        // Param 8: Direct Link
+                        InspectorParamRow(
+                            icon = Icons.Default.Link,
+                            label = "Ссылка на OLX",
+                            value = finding.url,
+                            onCopy = { copyToClipboard(finding.url, "Ссылка на объявление") }
+                        )
                     }
                 }
 
@@ -581,37 +1178,35 @@ if (finding.aiScore != null) {
                             )
                         }
 
-                        val desc = finding.description.ifBlank {
-                            "Продавец не указал подробного описания. Свяжитесь через OLX для уточнения параметров."
-                        }
-
                         Text(
-                            text = desc,
+                            text = cleanDesc,
                             color = CyberneticOnSurfaceVariant,
                             fontSize = 13.sp,
                             lineHeight = 18.sp,
-                            maxLines = if (isDescExpanded) Int.MAX_VALUE else 3,
+                            maxLines = if (isDescExpanded) Int.MAX_VALUE else 5,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.animateContentSize()
                         )
 
-                        TextButton(
-                            onClick = { isDescExpanded = !isDescExpanded },
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text(
-                                text = if (isDescExpanded) "Свернуть" else "Показать полностью",
-                                color = CyberneticPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Icon(
-                                imageVector = if (isDescExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = null,
-                                tint = CyberneticPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
+                        if (cleanDesc.length > 150) {
+                            TextButton(
+                                onClick = { isDescExpanded = !isDescExpanded },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text(
+                                    text = if (isDescExpanded) "Свернуть" else "Показать полностью",
+                                    color = CyberneticPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Icon(
+                                    imageVector = if (isDescExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    tint = CyberneticPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -646,6 +1241,25 @@ if (finding.aiScore != null) {
                             imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = "Избранное",
                             tint = if (isFavorite) CyberneticError else CyberneticOnSurface,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Copy Link button
+                    IconButton(
+                        onClick = {
+                            copyToClipboard(finding.url, "Ссылка на объявление")
+                        },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(CyberneticSurfaceContainerHigh)
+                            .border(1.dp, CyberneticOutlineVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Скопировать ссылку",
+                            tint = CyberneticOnSurface,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -697,13 +1311,7 @@ if (finding.aiScore != null) {
                     // Open on OLX button
                     Button(
                         onClick = {
-                            onOpenUrl(finding.url)
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(finding.url))
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                // fallback
-                            }
+                            openUrlDirectly()
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = CyberneticPrimary,
@@ -726,6 +1334,71 @@ if (finding.aiScore != null) {
                             modifier = Modifier.size(17.dp)
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InspectorParamRow(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    onCopy: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(CyberneticSurfaceContainer.copy(alpha = 0.6f))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            modifier = Modifier.weight(0.42f, fill = false),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = CyberneticPrimary,
+                modifier = Modifier.size(15.dp)
+            )
+            Text(
+                text = label,
+                color = CyberneticOnSurfaceVariant,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+        Row(
+            modifier = Modifier.weight(0.58f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End
+        ) {
+            Text(
+                text = value,
+                color = CyberneticOnSurface,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (onCopy != null) {
+                Spacer(modifier = Modifier.width(4.dp))
+                IconButton(
+                    onClick = onCopy,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Скопировать",
+                        tint = CyberneticPrimary,
+                        modifier = Modifier.size(13.dp)
+                    )
                 }
             }
         }

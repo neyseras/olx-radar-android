@@ -1,5 +1,7 @@
 package ua.magerko.olxradar.ui.compose
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -334,14 +336,25 @@ fun MainComposeScreen(
 
             // Native Deal Inspector Modal (BottomSheet)
             inspectFinding?.let { finding ->
+                val associatedWatch = watches.find { it.id == finding.watchId }
                 DealInspectorModal(
                     finding = finding,
+                    watchTitle = associatedWatch?.title?.ifBlank { associatedWatch.query } ?: associatedWatch?.query,
                     onDismiss = { inspectFinding = null },
                     onDelete = {
                         findingsViewModel.deleteFinding(finding)
                         inspectFinding = null
                     },
-                    onOpenUrl = { }
+                    onOpenUrl = { url ->
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            // fallback
+                        }
+                    }
                 )
             }
         }

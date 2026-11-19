@@ -16,8 +16,8 @@ android {
         applicationId = "ua.magerko.olxradar"
         minSdk = 24
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.6.5"
+        versionCode = 261119066
+        versionName = "261119066"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
