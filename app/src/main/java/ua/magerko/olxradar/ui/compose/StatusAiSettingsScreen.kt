@@ -1289,8 +1289,9 @@ fun StatusAiSettingsScreen(
     // Model Selector Dialog
     if (showModelDialog) {
         val models = listOf(
-            "llama-3.2-11b-vision-preview",
-            "llama-3.2-90b-vision-preview"
+            "qwen/qwen3.8-27b",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b"
         )
         AlertDialog(
             onDismissRequest = { showModelDialog = false },

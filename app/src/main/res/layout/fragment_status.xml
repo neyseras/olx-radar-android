@@ -446,7 +446,7 @@
                                 android:fontFamily="monospace"
                                 android:inputType="text"
                                 android:padding="0dp"
-                                android:text="llama-3.2-11b-vision-preview"
+                                android:text="qwen/qwen3.8-27b"
                                 android:textColor="@color/text_primary"
                                 android:textSize="13sp"
                                 android:textStyle="bold" />

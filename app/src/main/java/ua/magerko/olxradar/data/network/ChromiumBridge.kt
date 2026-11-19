@@ -139,8 +139,7 @@ class ChromiumBridge(private val context: Context) {
                         credentials: 'include',
                         headers: {
                             'Accept': 'application/json, text/plain, */*',
-                            'Accept-Language': 'uk-UA,uk;q=0.9,ru;q=0.8,en;q=0.7',
-                            'X-Requested-With': 'XMLHttpRequest'
+                            'Accept-Language': 'uk-UA,uk;q=0.9,ru;q=0.8,en;q=0.7'
                         }
                     })
                     .then(function(res) {

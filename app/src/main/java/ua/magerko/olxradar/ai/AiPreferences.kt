@@ -35,6 +35,13 @@ class AiPreferences(context: Context) {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(MonitorService.PREFS_NAME, Context.MODE_PRIVATE)
 
+    init {
+        val stored = prefs.getString(KEY_AI_MODEL, null)
+        if (stored == "qwen/qwen3.8-27b-vision" || stored?.contains("llama-3.2", ignoreCase = true) == true) {
+            prefs.edit().putString(KEY_AI_MODEL, BuildConfig.DEFAULT_GROQ_MODEL).apply()
+        }
+    }
+
     var isAiEnabled: Boolean
         get() {
             return if (!prefs.contains(KEY_AI_ENABLED)) {
@@ -77,10 +84,11 @@ class AiPreferences(context: Context) {
     var modelId: String
         get() {
             val stored = prefs.getString(KEY_AI_MODEL, null)
-            return if (!stored.isNullOrBlank() && !stored.contains("qwen3.8", ignoreCase = true)) {
-                stored
-            } else {
-                BuildConfig.DEFAULT_GROQ_MODEL
+            return when {
+                stored.isNullOrBlank() -> BuildConfig.DEFAULT_GROQ_MODEL
+                stored == "qwen/qwen3.8-27b-vision" -> BuildConfig.DEFAULT_GROQ_MODEL
+                stored.contains("llama-3.2", ignoreCase = true) -> BuildConfig.DEFAULT_GROQ_MODEL
+                else -> stored
             }
         }
         set(value) = prefs.edit().putString(KEY_AI_MODEL, value.trim()).apply()
