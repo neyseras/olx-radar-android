@@ -109,7 +109,7 @@ class ChromiumBridge(private val context: Context) {
                 val is5xx = e.message?.contains("HTTP 5") == true
                 ua.magerko.olxradar.util.AppLog.w(TAG, "Попытка $attempt запроса не удалась (${e.message})")
                 if (attempt < 3) {
-                    val waitMs = if (is5xx) 2000L * attempt else 1000L
+                    val waitMs = if (is5xx) 3500L * attempt else 1200L
                     kotlinx.coroutines.delay(waitMs)
                     withContext(Dispatchers.Main) {
                         if (e.message?.contains("renderer", ignoreCase = true) == true) {
@@ -146,8 +146,13 @@ class ChromiumBridge(private val context: Context) {
                     .then(function(res) {
                         if (!res.ok) {
                             return res.text().then(function(t) {
-                                var shortErr = t ? t.substring(0, 100).replace(/\s+/g, ' ') : '';
-                                throw new Error('HTTP ' + res.status + (shortErr ? ': ' + shortErr : ''));
+                                var titleMatch = t ? t.match(/<title>([^<]*)<\/title>/i) : null;
+                                var h1Match = t ? t.match(/<h[12][^>]*>([^<]*)<\/h[12]>/i) : null;
+                                var errDetail = titleMatch ? titleMatch[1].trim() : (h1Match ? h1Match[1].trim() : '');
+                                if (!errDetail && t) {
+                                    errDetail = t.substring(0, 60).replace(/\s+/g, ' ').trim();
+                                }
+                                throw new Error('HTTP ' + res.status + (errDetail ? ': ' + errDetail : ''));
                             }).catch(function(e) {
                                 if (e && e.message && e.message.indexOf('HTTP') === 0) {
                                     throw e;

@@ -77,7 +77,7 @@ class AiPreferences(context: Context) {
     var modelId: String
         get() {
             val stored = prefs.getString(KEY_AI_MODEL, null)
-            return if (!stored.isNullOrBlank()) {
+            return if (!stored.isNullOrBlank() && !stored.contains("qwen3.8", ignoreCase = true)) {
                 stored
             } else {
                 BuildConfig.DEFAULT_GROQ_MODEL

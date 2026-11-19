@@ -45,6 +45,9 @@ class MonitorService : Service() {
         const val KEY_QUIET_HOURS_TO_HOUR = "quiet_hours_to_hour"
         const val KEY_QUIET_HOURS_TO_MIN = "quiet_hours_to_min"
 
+        @Volatile
+        internal var globalDomainCooldownUntil: Long = 0L
+
         internal fun isInQuietHoursRange(
             enabled: Boolean,
             fromHour: Int,
@@ -162,6 +165,12 @@ class MonitorService : Service() {
                 }
 
                 val now = System.currentTimeMillis()
+                if (now < globalDomainCooldownUntil) {
+                    val waitRemaining = (globalDomainCooldownUntil - now).coerceAtMost(3000L)
+                    delay(waitRemaining)
+                    continue
+                }
+
                 val globalIntervalSec = prefs.getInt(KEY_INTERVAL, DEFAULT_INTERVAL_SEC)
 
                 // Clean up stale watches from scheduling maps
@@ -194,15 +203,20 @@ class MonitorService : Service() {
                 }
 
                 // Poll this due watch
-                pollWatch(dueWatch, globalIntervalSec)
+                pollWatch(dueWatch, globalIntervalSec, activeWatches.size)
 
-                // Polite pause between individual radar requests (1800-2600 ms) to avoid OLX rate limiting / HTTP 500
-                delay(Random.nextLong(1800, 2600))
+                // Polite pause between individual radar requests to avoid OLX rate limiting / HTTP 500
+                val pauseMs = when {
+                    activeWatches.size >= 5 -> Random.nextLong(2800, 3800)
+                    activeWatches.size >= 3 -> Random.nextLong(2200, 3000)
+                    else -> Random.nextLong(1600, 2400)
+                }
+                delay(pauseMs)
             }
         }
     }
 
-    private suspend fun pollWatch(watch: Watch, globalIntervalSec: Int) {
+    private suspend fun pollWatch(watch: Watch, globalIntervalSec: Int, activeWatchesCount: Int = 1) {
         val now = System.currentTimeMillis()
         try {
             val searchUrl = OlxParser.buildSearchUrl(watch)
@@ -305,16 +319,24 @@ class MonitorService : Service() {
             val updatedTimeStr = timeFormat.format(Date(now))
             updateNotification(getString(R.string.service_status_updated, updatedTimeStr))
 
-            // B8: Next run with ±10% jitter
+            // Scale safe interval based on total active radars to protect from CloudFront throttling
             val baseIntervalSec = watch.intervalSecOverride ?: globalIntervalSec
-            val jitter = 1.0 + Random.nextDouble(-0.1, 0.1)
-            val nextIntervalMs = (baseIntervalSec * 1000L * jitter).toLong().coerceAtLeast(5000L)
+            val minSafeIntervalSec = (activeWatchesCount * 5).coerceAtLeast(15)
+            val effectiveIntervalSec = baseIntervalSec.coerceAtLeast(minSafeIntervalSec)
+            val jitter = 1.0 + Random.nextDouble(-0.08, 0.08)
+            val nextIntervalMs = (effectiveIntervalSec * 1000L * jitter).toLong().coerceAtLeast(5000L)
             nextRunMap[watch.id] = now + nextIntervalMs
 
         } catch (e: Exception) {
             // B1: Error handling — classify error, update DAO, RadarState, Log.w
             val (errorMsg, httpCode) = classifyError(e)
             AppLog.w(TAG, "Ошибка радара '${watch.query}': $errorMsg", e)
+
+            if (httpCode == 500 || httpCode == 429 || httpCode == 503) {
+                // If OLX is overwhelmed or rate limiting, set global cooldown so other radars don't cascade into the block
+                globalDomainCooldownUntil = now + 25000L
+                AppLog.w(TAG, "Включён общий тайм-аут на 25с для всех радаров (HTTP $httpCode)")
+            }
 
             db.watchDao().updateError(watch.id, errorMsg, httpCode)
             RadarState.recordError(watch.id, errorMsg, httpCode)
