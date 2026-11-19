@@ -107,9 +107,9 @@ class ChromiumBridge(private val context: Context) {
             } catch (e: Exception) {
                 lastException = e
                 val is5xx = e.message?.contains("HTTP 5") == true
-                ua.magerko.olxradar.util.AppLog.w(TAG, "Попытка $attempt запроса не удалась (${e.message})")
                 if (attempt < 3) {
                     val waitMs = if (is5xx) 3500L * attempt else 1200L
+                    ua.magerko.olxradar.util.AppLog.d(TAG, "Ответ OLX ($attempt/3: ${e.message}) — мягкий повтор через ${waitMs / 1000}с")
                     kotlinx.coroutines.delay(waitMs)
                     withContext(Dispatchers.Main) {
                         if (e.message?.contains("renderer", ignoreCase = true) == true) {
@@ -118,6 +118,8 @@ class ChromiumBridge(private val context: Context) {
                             ensureWebView()
                         }
                     }
+                } else {
+                    ua.magerko.olxradar.util.AppLog.w(TAG, "Все 3 попытки запроса не удались (${e.message})")
                 }
             }
         }

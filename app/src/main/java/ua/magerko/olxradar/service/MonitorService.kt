@@ -179,12 +179,12 @@ class MonitorService : Service() {
                 consecutiveErrorsMap.keys.retainAll(activeIds)
                 lastErrorAlertMap.keys.retainAll(activeIds)
 
-                // Initialize next run time for new watches with slight offset to prevent simultaneous burst calls
+                // Initialize next run time for new watches with stagger to prevent simultaneous burst calls
                 var staggerMs = 0L
                 for (w in activeWatches) {
                     if (!nextRunMap.containsKey(w.id)) {
                         nextRunMap[w.id] = now + staggerMs
-                        staggerMs += 2000L
+                        staggerMs += 4000L
                     }
                 }
 
@@ -205,11 +205,11 @@ class MonitorService : Service() {
                 // Poll this due watch
                 pollWatch(dueWatch, globalIntervalSec, activeWatches.size)
 
-                // Polite pause between individual radar requests to avoid OLX rate limiting / HTTP 500
+                // Safe pacing between individual radar requests to avoid OLX rate limiting (1 req / 5-7s)
                 val pauseMs = when {
-                    activeWatches.size >= 5 -> Random.nextLong(2800, 3800)
-                    activeWatches.size >= 3 -> Random.nextLong(2200, 3000)
-                    else -> Random.nextLong(1600, 2400)
+                    activeWatches.size >= 5 -> Random.nextLong(4500, 6000)
+                    activeWatches.size >= 3 -> Random.nextLong(3500, 4800)
+                    else -> Random.nextLong(2500, 3500)
                 }
                 delay(pauseMs)
             }
@@ -319,9 +319,9 @@ class MonitorService : Service() {
             val updatedTimeStr = timeFormat.format(Date(now))
             updateNotification(getString(R.string.service_status_updated, updatedTimeStr))
 
-            // Scale safe interval based on total active radars to protect from CloudFront throttling
+            // Scale safe interval based on total active radars to protect from CloudFront throttling (each radar >= activeCount * 7s)
             val baseIntervalSec = watch.intervalSecOverride ?: globalIntervalSec
-            val minSafeIntervalSec = (activeWatchesCount * 5).coerceAtLeast(15)
+            val minSafeIntervalSec = (activeWatchesCount * 7).coerceAtLeast(20)
             val effectiveIntervalSec = baseIntervalSec.coerceAtLeast(minSafeIntervalSec)
             val jitter = 1.0 + Random.nextDouble(-0.08, 0.08)
             val nextIntervalMs = (effectiveIntervalSec * 1000L * jitter).toLong().coerceAtLeast(5000L)
