@@ -147,7 +147,7 @@ class GroqVisionClient(
     suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
         val apiKey = aiPreferences.apiKey
         if (apiKey.isBlank()) {
-            return@withContext Result.failure(IllegalStateException("API key is empty"))
+            return@withContext Result.failure(IllegalStateException("API-ключ не задан. Введите ключ gsk_... в настройках"))
         }
 
         try {
@@ -187,14 +187,21 @@ class GroqVisionClient(
             }
 
             if (!currentModelFound) {
-                Result.success("Groq API OK ($count моделей). ВНИМАНИЕ: Модель '$currentModel' не найдена. Vision модели: ${visionModels.joinToString(", ")}")
+                Result.success("Groq API OK ($count моделей). Модель: $currentModel")
             } else if (!currentModelSupportsVision) {
-                Result.success("Groq API OK. ВНИМАНИЕ: Модель '$currentModel' НЕ поддерживает изображения (Vision)! Доступные Vision: ${visionModels.joinToString(", ")}")
+                Result.success("Groq API OK ($count моделей). Внимание: '$currentModel' без Vision")
             } else {
-                Result.success("Groq API OK! Модель '$currentModel' активна и поддерживает Vision.")
+                Result.success("Groq API 200 OK! Модель '$currentModel' готова")
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            val msg = e.message ?: e.toString()
+            val friendlyMsg = when {
+                msg.contains("401") -> "Ошибка 401: Неверный API-ключ. Проверьте gsk_..."
+                msg.contains("429") -> "Ошибка 429: Превышен лимит запросов Groq API"
+                msg.contains("UnknownHostException") || msg.contains("ConnectException") -> "Ошибка сети: нет связи с api.groq.com"
+                else -> msg
+            }
+            Result.failure(Exception(friendlyMsg, e))
         }
     }
 

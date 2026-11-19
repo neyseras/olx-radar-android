@@ -16,14 +16,14 @@ android {
         applicationId = "ua.magerko.olxradar"
         minSdk = 24
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.6.0"
+        versionCode = 8
+        versionName = "1.6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // По умолчанию API-ключ пустой — задаётся пользователем в настройках приложения
         buildConfigField("String", "DEFAULT_GROQ_API_KEY", "\"\"")
-        buildConfigField("String", "DEFAULT_GROQ_MODEL", "\"qwen/qwen3.8-27b\"")
+        buildConfigField("String", "DEFAULT_GROQ_MODEL", "\"llama-3.2-11b-vision-preview\"")
     }
 
     signingConfigs {

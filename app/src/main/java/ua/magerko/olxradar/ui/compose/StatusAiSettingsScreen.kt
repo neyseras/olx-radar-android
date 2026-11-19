@@ -119,6 +119,7 @@ fun StatusAiSettingsScreen(
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
     var testStatusText by remember { mutableStateOf<String?>(null) }
+    var testStatusSuccess by remember { mutableStateOf<Boolean?>(null) }
     var isTestingKey by remember { mutableStateOf(false) }
 
     Column(
@@ -787,34 +788,78 @@ fun StatusAiSettingsScreen(
                             // Test Connection Button
                             OutlinedButton(
                                 onClick = {
+                                    if (aiApiKeyMasked.isBlank()) {
+                                        testStatusText = "API-ключ не задан (введите ключ)"
+                                        testStatusSuccess = false
+                                        Toast.makeText(context, "Сначала введите API-ключ Groq", Toast.LENGTH_SHORT).show()
+                                        return@OutlinedButton
+                                    }
                                     isTestingKey = true
+                                    testStatusText = null
                                     coroutineScope.launch {
-                                        kotlinx.coroutines.delay(1000)
+                                        val result = statusViewModel.testGroqApi()
                                         isTestingKey = false
-                                        testStatusText = "Соединение успешно: 200 OK"
-                                        Toast.makeText(context, "Groq API подключен успешно!", Toast.LENGTH_SHORT).show()
+                                        if (result.isSuccess) {
+                                            testStatusSuccess = true
+                                            testStatusText = "200 OK: Соединение успешно!"
+                                            Toast.makeText(context, result.getOrNull() ?: "Groq API подключен успешно!", Toast.LENGTH_LONG).show()
+                                        } else {
+                                            testStatusSuccess = false
+                                            val err = result.exceptionOrNull()?.message ?: "Ошибка подключения"
+                                            testStatusText = if (err.contains("401")) {
+                                                "Ошибка 401: Неверный ключ"
+                                            } else {
+                                                "Ошибка: ${err.take(28)}..."
+                                            }
+                                            Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                                        }
                                     }
                                 },
                                 shape = RoundedCornerShape(10.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = CyberneticSecondary
+                                    contentColor = when (testStatusSuccess) {
+                                        true -> CyberneticSecondary
+                                        false -> CyberneticError
+                                        null -> CyberneticPrimary
+                                    }
                                 ),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, CyberneticSecondary.copy(alpha = 0.4f)),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    when (testStatusSuccess) {
+                                        true -> CyberneticSecondary.copy(alpha = 0.5f)
+                                        false -> CyberneticError.copy(alpha = 0.5f)
+                                        null -> CyberneticPrimary.copy(alpha = 0.4f)
+                                    }
+                                ),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(40.dp)
                             ) {
                                 if (isTestingKey) {
                                     CircularProgressIndicator(
-                                        color = CyberneticSecondary,
+                                        color = CyberneticPrimary,
                                         modifier = Modifier.size(16.dp),
                                         strokeWidth = 2.dp
                                     )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Проверка на api.groq.com...",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 } else {
                                     Icon(
-                                        imageVector = Icons.Default.CheckCircle,
+                                        imageVector = when (testStatusSuccess) {
+                                            true -> Icons.Default.CheckCircle
+                                            false -> Icons.Default.ErrorOutline
+                                            null -> Icons.Default.Speed
+                                        },
                                         contentDescription = null,
-                                        tint = CyberneticSecondary,
+                                        tint = when (testStatusSuccess) {
+                                            true -> CyberneticSecondary
+                                            false -> CyberneticError
+                                            null -> CyberneticPrimary
+                                        },
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
@@ -1221,6 +1266,8 @@ fun StatusAiSettingsScreen(
                         if (newKey.isNotBlank()) {
                             statusViewModel.setApiKey(newKey.trim())
                         }
+                        testStatusText = null
+                        testStatusSuccess = null
                         showApiKeyDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(
