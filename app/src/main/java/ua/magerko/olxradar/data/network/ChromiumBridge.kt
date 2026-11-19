@@ -40,6 +40,10 @@ class ChromiumBridge(private val context: Context) {
         try {
             destroyWebView()
             val wv = WebView(context.applicationContext)
+            val cookieManager = android.webkit.CookieManager.getInstance()
+            cookieManager.setAcceptCookie(true)
+            cookieManager.setAcceptThirdPartyCookies(wv, true)
+
             val settings = wv.settings
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -93,18 +97,31 @@ class ChromiumBridge(private val context: Context) {
 
     /**
      * B10: All calls to WebView are on the main thread.
-     * Retries once if the initial attempt fails (e.g., due to dead renderer).
+     * Retries up to 3 times with backoff on transient errors (HTTP 500, burst limit).
      */
     suspend fun fetchJson(url: String, timeoutMs: Long = 25000): String {
-        return try {
-            executeFetch(url, timeoutMs)
-        } catch (e: Exception) {
-            ua.magerko.olxradar.util.AppLog.w(TAG, "Первый запрос не удался (${e.message}) — пересоздаю WebView и повторяю")
-            withContext(Dispatchers.Main) {
-                initWebView()
+        var lastException: Exception? = null
+        for (attempt in 1..3) {
+            try {
+                return executeFetch(url, timeoutMs)
+            } catch (e: Exception) {
+                lastException = e
+                val is5xx = e.message?.contains("HTTP 5") == true
+                ua.magerko.olxradar.util.AppLog.w(TAG, "Попытка $attempt запроса не удалась (${e.message})")
+                if (attempt < 3) {
+                    val waitMs = if (is5xx) 2000L * attempt else 1000L
+                    kotlinx.coroutines.delay(waitMs)
+                    withContext(Dispatchers.Main) {
+                        if (e.message?.contains("renderer", ignoreCase = true) == true) {
+                            initWebView()
+                        } else {
+                            ensureWebView()
+                        }
+                    }
+                }
             }
-            executeFetch(url, timeoutMs)
         }
+        throw lastException ?: RuntimeException("Запрос не удался после 3 попыток")
     }
 
     private suspend fun executeFetch(url: String, timeoutMs: Long): String {
@@ -119,15 +136,24 @@ class ChromiumBridge(private val context: Context) {
                 (function() {
                     fetch($quotedUrl, {
                         method: 'GET',
-                        credentials: 'omit',
+                        credentials: 'include',
                         headers: {
                             'Accept': 'application/json, text/plain, */*',
-                            'Accept-Language': 'uk-UA,uk;q=0.9,ru;q=0.8,en;q=0.7'
+                            'Accept-Language': 'uk-UA,uk;q=0.9,ru;q=0.8,en;q=0.7',
+                            'X-Requested-With': 'XMLHttpRequest'
                         }
                     })
                     .then(function(res) {
                         if (!res.ok) {
-                            throw new Error('HTTP ' + res.status);
+                            return res.text().then(function(t) {
+                                var shortErr = t ? t.substring(0, 100).replace(/\s+/g, ' ') : '';
+                                throw new Error('HTTP ' + res.status + (shortErr ? ': ' + shortErr : ''));
+                            }).catch(function(e) {
+                                if (e && e.message && e.message.indexOf('HTTP') === 0) {
+                                    throw e;
+                                }
+                                throw new Error('HTTP ' + res.status);
+                            });
                         }
                         return res.text();
                     })

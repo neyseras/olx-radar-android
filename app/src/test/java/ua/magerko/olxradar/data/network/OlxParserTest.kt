@@ -469,11 +469,11 @@ class OlxParserTest {
         val url = OlxParser.buildSearchUrl(watch)
         assertTrue(url.startsWith("https://www.olx.ua/api/v1/offers/?"))
         assertTrue(url.contains("query=iphone+13+pro+%26+max") || url.contains("query=iphone%2013%20pro%20%26%20max"))
-        assertTrue(url.contains("filter_float_price%3Afrom=10000"))
-        assertTrue(url.contains("filter_float_price%3Ato=20000"))
+        assertTrue(url.contains("filter_float_price:from=10000") || url.contains("filter_float_price%3Afrom=10000"))
+        assertTrue(url.contains("filter_float_price:to=20000") || url.contains("filter_float_price%3Ato=20000"))
         assertTrue(url.contains("city_id=5"))
         assertTrue(url.contains("category_id=37"))
         assertTrue(url.contains("owner_type=private"))
-        assertTrue(url.contains("filter_enum_state%5B0%5D=used"))
+        assertTrue(url.contains("filter_enum_state[0]=used") || url.contains("filter_enum_state%5B0%5D=used"))
     }
 }

@@ -1109,7 +1109,7 @@ fun StatusAiSettingsScreen(
                         )
                     }
                     Text(
-                        text = "Разработчики: Deads_xB и Neyseras",
+                        text = "Разработчики: Deads_xB и neyseras",
                         color = CyberneticOnSurfaceVariant,
                         fontSize = 12.sp
                     )

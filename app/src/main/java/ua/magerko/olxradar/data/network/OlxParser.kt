@@ -49,7 +49,13 @@ object OlxParser {
         // If confirmed in the future, add here. Do not guess parameter names.
 
         val queryStr = params.joinToString("&") { (k, v) ->
-            "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
+            val safeK = URLEncoder.encode(k, "UTF-8")
+                .replace("%3A", ":")
+                .replace("%5B", "[")
+                .replace("%5D", "]")
+            val safeV = URLEncoder.encode(v, "UTF-8")
+                .replace("%3A", ":")
+            "$safeK=$safeV"
         }
         return "$BASE_URL?$queryStr"
     }

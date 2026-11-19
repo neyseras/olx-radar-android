@@ -761,6 +761,7 @@ fun RadarCard(
                     val watchLive = radarStatus.perWatch[watch.id]
                     val hasError = !watchLive?.lastError.isNullOrBlank() || !watch.lastError.isNullOrBlank()
                     val errorMsg = watchLive?.lastError ?: watch.lastError
+                    val is500 = errorMsg?.contains("500") == true
                     val lastSuccess = watchLive?.lastSuccessAt ?: watch.lastSuccessAt
                     val interval = watch.intervalSecOverride ?: globalIntervalSec
 
@@ -771,6 +772,7 @@ fun RadarCard(
                             .background(
                                 when {
                                     !watch.isActive -> CyberneticOutline
+                                    is500 -> CyberneticTertiary
                                     hasError -> CyberneticError
                                     else -> CyberneticSecondary
                                 }
@@ -784,9 +786,10 @@ fun RadarCard(
                             fontWeight = FontWeight.Medium
                         )
                     } else if (hasError) {
+                        val displayMsg = if (is500) "OLX занят (500) · повтор..." else "Ошибка: ${errorMsg?.take(22)}..."
                         Text(
-                            text = "Ошибка: ${errorMsg?.take(22)}...",
-                            color = CyberneticError,
+                            text = displayMsg,
+                            color = if (is500) CyberneticTertiary else CyberneticError,
                             fontSize = 11.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis

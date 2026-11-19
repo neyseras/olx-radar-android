@@ -170,10 +170,12 @@ class MonitorService : Service() {
                 consecutiveErrorsMap.keys.retainAll(activeIds)
                 lastErrorAlertMap.keys.retainAll(activeIds)
 
-                // Initialize next run time for new watches with slight offset
+                // Initialize next run time for new watches with slight offset to prevent simultaneous burst calls
+                var staggerMs = 0L
                 for (w in activeWatches) {
                     if (!nextRunMap.containsKey(w.id)) {
-                        nextRunMap[w.id] = now
+                        nextRunMap[w.id] = now + staggerMs
+                        staggerMs += 2000L
                     }
                 }
 
@@ -194,8 +196,8 @@ class MonitorService : Service() {
                 // Poll this due watch
                 pollWatch(dueWatch, globalIntervalSec)
 
-                // Polite pause between individual radar requests (500-1000 ms)
-                delay(600)
+                // Polite pause between individual radar requests (1800-2600 ms) to avoid OLX rate limiting / HTTP 500
+                delay(Random.nextLong(1800, 2600))
             }
         }
     }
@@ -345,6 +347,8 @@ class MonitorService : Service() {
                 "HTTP 403 Forbidden" to 403
             extractedCode == 429 || msg.contains("HTTP 429", ignoreCase = true) ->
                 "HTTP 429 Too Many Requests" to 429
+            extractedCode == 500 || msg.contains("HTTP 500", ignoreCase = true) ->
+                "HTTP 500 (сервер OLX перегружен)" to 500
             extractedCode != null ->
                 "HTTP $extractedCode" to extractedCode
             e is TimeoutCancellationException ||
