@@ -57,7 +57,13 @@ class AiFilterEngine(
         val analysisResult: AiAnalysisResult
         if (cached != null) {
             val parsed = AiAnalysisResult.fromJson(cached.resultJson)
-            if (parsed != null) {
+            // Если в кэше записан отказ (!isMatch), но сейчас лот проверяет ДРУГОЙ радар с ДРУГИМ запросом —
+            // старый отказ неприменим (возможно, для нового радара товар подходит идеально).
+            val cachedQuery = parsed?.query
+            val queryMismatchForRejected = parsed != null && !parsed.isMatch && cachedQuery != null &&
+                    !cachedQuery.equals(watch.query.trim(), ignoreCase = true)
+
+            if (parsed != null && !queryMismatchForRejected) {
                 analysisResult = parsed
                 val statusLabel = when {
                     analysisResult.condition == "broken" || analysisResult.visibleDefects.isNotEmpty() -> AiStatus.NEEDS_REVIEW
@@ -82,14 +88,19 @@ class AiFilterEngine(
                 if (fresh.isFailure) {
                     return handleAiError(fresh.exceptionOrNull(), listing, watch)
                 }
-                analysisResult = fresh.getOrThrow()
+                analysisResult = fresh.getOrThrow().copy(query = watch.query.trim())
+                try {
+                    aiCacheDao?.insert(AiCacheEntry(listing.id, analysisResult.toJsonString()))
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cache insert error: ${e.message}")
+                }
             }
         } else {
             val fresh = runAnalysis(listing, watch)
             if (fresh.isFailure) {
                 return handleAiError(fresh.exceptionOrNull(), listing, watch)
             }
-            analysisResult = fresh.getOrThrow()
+            analysisResult = fresh.getOrThrow().copy(query = watch.query.trim())
             try {
                 aiCacheDao?.insert(AiCacheEntry(listing.id, analysisResult.toJsonString()))
             } catch (e: Exception) {
@@ -149,7 +160,10 @@ class AiFilterEngine(
 
         val fresh = runAnalysis(listing, watch)
         val eval = fresh.fold(
-            onSuccess = { evaluateResult(it) },
+            onSuccess = { rawResult ->
+                val withQuery = rawResult.copy(query = watch.query.trim())
+                evaluateResult(withQuery).copy(result = withQuery)
+            },
             onFailure = { handleAiError(it) }
         )
 
@@ -217,8 +231,10 @@ class AiFilterEngine(
         val shouldSaveRejected = !isStrict && isManual
 
         // 1. Completeness filter: Box only or parts only -> REJECTED
+        // Отклоняем ТОЛЬКО если продаётся исключительно коробка или запчасти БЕЗ самого товара (!ai.isMatch).
+        // Если же основной товар присутствует (isMatch == true), лот НЕ бракуется!
         val isBoxOrParts = ai.completeness in listOf("box_only", "parts_only", "parts", "box")
-        if (isBoxOrParts) {
+        if (isBoxOrParts && !ai.isMatch) {
             return AiEvaluation(
                 status = AiStatus.REJECTED,
                 shouldNotify = notifyRejected,

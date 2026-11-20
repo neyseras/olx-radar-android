@@ -23,11 +23,11 @@ class AiPreferences(context: Context) {
 
         const val DEFAULT_PROVIDER = "groq"
         const val DEFAULT_CONFIDENCE_THRESHOLD = 75
-        const val DEFAULT_MAX_PHOTOS = 2
+        const val DEFAULT_MAX_PHOTOS = 1
         const val DEFAULT_CHECK_SUSPICIOUS = true
         const val DEFAULT_STRICT_MODE = false
         const val DEFAULT_MANUAL_REVIEW_MODE = true
-        const val DEFAULT_MAX_CONCURRENT = 2
+        const val DEFAULT_MAX_CONCURRENT = 1
         const val DEFAULT_TIMEOUT_SEC = 25
         const val DEFAULT_NOTIFY_REJECTED = false
     }

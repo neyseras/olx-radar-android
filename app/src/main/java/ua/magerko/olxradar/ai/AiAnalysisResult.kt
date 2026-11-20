@@ -17,10 +17,11 @@ data class AiAnalysisResult(
     val categoryMatch: Boolean,
     val reasons: List<String>,
     val rejectReason: String?,
-    val rawJson: String? = null
+    val rawJson: String? = null,
+    val query: String? = null
 ) {
     fun toJsonString(): String {
-        return rawJson ?: JSONObject().apply {
+        return JSONObject().apply {
             put("is_match", isMatch)
             put("confidence", confidence)
             put("detected_product", detectedProduct ?: JSONObject.NULL)
@@ -40,6 +41,7 @@ data class AiAnalysisResult(
             put("category_match", categoryMatch)
             put("reasons", JSONArray(reasons))
             put("reject_reason", rejectReason ?: JSONObject.NULL)
+            put("query", query ?: JSONObject.NULL)
         }.toString()
     }
 
@@ -101,6 +103,7 @@ data class AiAnalysisResult(
                 }
 
                 val rejectReason = if (obj.isNull("reject_reason")) null else obj.optString("reject_reason").takeIf { it.isNotBlank() }
+                val query = if (obj.isNull("query")) null else obj.optString("query").takeIf { it.isNotBlank() }
 
                 AiAnalysisResult(
                     isMatch = isMatch,
@@ -116,7 +119,8 @@ data class AiAnalysisResult(
                     categoryMatch = categoryMatch,
                     reasons = reasons,
                     rejectReason = rejectReason,
-                    rawJson = cleanJson
+                    rawJson = cleanJson,
+                    query = query
                 )
             } catch (_: Exception) {
                 null

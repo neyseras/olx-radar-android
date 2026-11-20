@@ -3,7 +3,9 @@ package ua.magerko.olxradar.ai
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -15,6 +17,7 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.math.max
 import kotlin.random.Random
 
 class GroqVisionClient(
@@ -26,7 +29,11 @@ class GroqVisionClient(
         private const val BASE_URL = "https://api.groq.com/openai/v1"
         private const val COMPLETIONS_ENDPOINT = "$BASE_URL/chat/completions"
         private const val MODELS_ENDPOINT = "$BASE_URL/models"
-        private const val MAX_RETRIES = 3
+        private const val MAX_RETRIES = 4
+        private const val MIN_REQUEST_INTERVAL_MS = 2500L
+        private val requestLock = Mutex()
+        @Volatile
+        private var lastRequestFinishedMs = 0L
 
         const val SYSTEM_PROMPT = """Ты эксперт по идентификации товаров и фильтрации объявлений OLX.
 Тебе необходимо определить, соответствует ли объявление поисковому запросу пользователя.
@@ -36,9 +43,12 @@ class GroqVisionClient(
 2. Соответствие фотографии заголовку.
 3. Соответствие описания изображённому товару.
 4. Модель и технические характеристики.
-5. Комплектность товара.
+5. Комплектность товара (completeness):
+   - "complete": если в объявлении продаётся основной товар (даже если есть коробка, чехол, зарядка, чек или это полный комплект). Если на фото виден сам товар и коробка рядом — это "complete"!
+   - "box_only": использовать ТОЛЬКО если продаётся ИСКЛЮЧИТЕЛЬНО пустая коробка / упаковка БЕЗ самого устройства!
+   - "parts_only": использовать ТОЛЬКО если продаётся ИСКЛЮЧИТЕЛЬНО отдельная запчасть / плата / деталь БЕЗ целого устройства.
 6. Состояние и видимые повреждения.
-7. Не продаётся ли только запчасть, коробка или аксессуар.
+7. Не продаётся ли только запчасть, коробка или аксессуар вместо основного устройства.
 8. Не является ли объявление услугой или нерелевантным предложением.
 9. Соответствует ли цена указанному товару.
 
@@ -46,6 +56,7 @@ class GroqVisionClient(
 Если модель невозможно определить, укажи это.
 Не считай отсутствие информации доказательством неисправности.
 Не отклоняй объявление только из-за плохого качества фотографии.
+Если основной товар присутствует в объявлении (даже с коробкой или чехлом), completeness ОБЯЗАН быть "complete", а is_match - true (при совпадении с запросом).
 
 Возвращай ТОЛЬКО валидный структурированный JSON следующего формата:
 {
@@ -103,41 +114,51 @@ class GroqVisionClient(
         }
 
         getSemaphore().withPermit {
-            val userText = buildUserPrompt(listing, watch, base64Images.isNotEmpty())
-            val requestBodyJson = buildRequestBody(userText, base64Images, aiPreferences.modelId)
-
-            var lastException: Exception? = null
-            var retryDelayMs = 1500L
-
-            for (attempt in 0..MAX_RETRIES) {
-                if (attempt > 0) {
-                    val jitter = Random.nextLong(100, 500)
-                    delay(retryDelayMs + jitter)
-                    retryDelayMs *= 2
+            requestLock.withLock {
+                val now = System.currentTimeMillis()
+                val elapsed = now - lastRequestFinishedMs
+                if (elapsed < MIN_REQUEST_INTERVAL_MS) {
+                    delay(MIN_REQUEST_INTERVAL_MS - elapsed)
                 }
 
-                try {
-                    val timeoutMs = aiPreferences.timeoutSeconds * 1000
-                    val responseJson = executeHttpRequest(COMPLETIONS_ENDPOINT, apiKey, requestBodyJson, timeoutMs)
-                    val result = parseCompletionResponse(responseJson)
-                    if (result != null) {
-                        return@withContext Result.success(result)
-                    } else {
-                        lastException = IllegalArgumentException("Failed to parse valid JSON from AI response")
+                val userText = buildUserPrompt(listing, watch, base64Images.isNotEmpty())
+                val requestBodyJson = buildRequestBody(userText, base64Images, aiPreferences.modelId)
+
+                var lastException: Exception? = null
+                var retryDelayMs = 2000L
+
+                for (attempt in 0..MAX_RETRIES) {
+                    if (attempt > 0) {
+                        val jitter = Random.nextLong(200, 800)
+                        delay(retryDelayMs + jitter)
+                        retryDelayMs = (retryDelayMs * 2).coerceAtMost(30000L)
                     }
-                } catch (e: HttpRateLimitException) {
-                    Log.w(TAG, "Groq 429 Rate Limit (attempt $attempt/${MAX_RETRIES})")
-                    lastException = e
-                    if (e.retryAfterMs != null && e.retryAfterMs > 0) {
-                        retryDelayMs = e.retryAfterMs.coerceAtMost(15000L)
+
+                    try {
+                        val timeoutMs = aiPreferences.timeoutSeconds * 1000
+                        val responseJson = executeHttpRequest(COMPLETIONS_ENDPOINT, apiKey, requestBodyJson, timeoutMs)
+                        lastRequestFinishedMs = System.currentTimeMillis()
+                        val result = parseCompletionResponse(responseJson)
+                        if (result != null) {
+                            return@withContext Result.success(result)
+                        } else {
+                            lastException = IllegalArgumentException("Failed to parse valid JSON from AI response")
+                        }
+                    } catch (e: HttpRateLimitException) {
+                        Log.w(TAG, "Groq 429 Rate Limit (attempt $attempt/$MAX_RETRIES)")
+                        lastException = e
+                        val waitMs = max(e.retryAfterMs ?: 12000L, 10000L)
+                        retryDelayMs = waitMs
+                        lastRequestFinishedMs = System.currentTimeMillis()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Groq API error on attempt $attempt: ${e.message}")
+                        lastException = e
+                        lastRequestFinishedMs = System.currentTimeMillis()
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Groq API error on attempt $attempt: ${e.message}")
-                    lastException = e
                 }
+
+                Result.failure(lastException ?: RuntimeException("AI analysis failed after retries"))
             }
-
-            Result.failure(lastException ?: RuntimeException("AI analysis failed after retries"))
         }
     }
 

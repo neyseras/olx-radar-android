@@ -1003,6 +1003,34 @@ fun DealInspectorModal(
                                     fontSize = 12.sp,
                                     lineHeight = 16.sp
                                 )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Button(
+                                    onClick = onRetryAi,
+                                    enabled = !isRetryingAi,
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = CyberneticPrimary,
+                                        contentColor = CyberneticOnPrimary
+                                    )
+                                ) {
+                                    if (isRetryingAi) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = CyberneticOnPrimary
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Анализируем...", fontSize = 13.sp)
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Перепроверить ИИ", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
                             }
                         } else if (isAiError) {
                             // Content branch 3: AI Error

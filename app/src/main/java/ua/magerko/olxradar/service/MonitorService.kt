@@ -304,6 +304,7 @@ class MonitorService : Service() {
 
                         // Multi-stage filtering: evaluate with AI filter engine
                         val aiEval = aiFilterEngine.evaluateListing(listing, watch)
+                        kotlinx.coroutines.delay(500)
 
                         // Mark seen and update last price/pushed_at
                         db.seenItemDao().markSeenAndPrune(

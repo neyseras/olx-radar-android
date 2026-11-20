@@ -18,8 +18,8 @@ class AiImageProcessor {
 
     companion object {
         private const val TAG = "AiImageProcessor"
-        private const val MAX_IMAGE_DIMENSION = 640
-        private const val JPEG_QUALITY = 75
+        private const val MAX_IMAGE_DIMENSION = 512
+        private const val JPEG_QUALITY = 65
         private const val CONNECT_TIMEOUT_MS = 5000
         private const val READ_TIMEOUT_MS = 5000
 

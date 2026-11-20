@@ -190,6 +190,30 @@ class AiFilterEngineTest {
         assertFalse(eval.shouldNotify)
     }
 
+    @Test
+    fun testScenario_boxOrPartsWithMainProduct_notRejected() {
+        val aiResult = AiAnalysisResult(
+            isMatch = true,
+            confidence = 90,
+            detectedProduct = "Sapphire RX 470 8GB",
+            detectedModel = "RX 470",
+            detectedSpecs = mapOf("vram" to "8GB"),
+            photoMatchesTitle = true,
+            condition = "used",
+            completeness = "box",
+            visibleDefects = emptyList(),
+            isSuspicious = false,
+            categoryMatch = true,
+            reasons = listOf("Основной товар в наличии, коробка в комплекте"),
+            rejectReason = null
+        )
+
+        val eval = engine.evaluateResult(aiResult)
+        assertEquals(AiStatus.MATCH, eval.status)
+        assertTrue(eval.shouldSaveFinding)
+        assertTrue(eval.shouldNotify)
+    }
+
     // 5. Scenario 5: Defective product
     @Test
     fun testScenario5_defectiveProduct_visibleDefectsIdentified() {
