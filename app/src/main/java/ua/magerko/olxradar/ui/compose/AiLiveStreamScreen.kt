@@ -48,6 +48,7 @@ fun AiLiveStreamScreen(
 
     var filterMode by remember { mutableStateOf("all") } // "all", "approved", "rejected", "other"
     var showClearConfirmDialog by remember { mutableStateOf(false) }
+    var showQueueSheet by remember { mutableStateOf(false) }
 
     // Текстовый таймер для отображения живых секунд в карточке
     var ticker by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -220,13 +221,12 @@ fun AiLiveStreamScreen(
                         )
                     }
 
-                    // QUEUED ITEMS SECTION (ОЧЕРЕДЬ ИИ-ПОТОКА)
+                    // QUEUED ITEMS BUTTON (ОЧЕРЕДЬ ИИ-ПОТОКА)
                     if (aiActivity.queue.isNotEmpty()) {
                         item {
-                            QueuedAiItemsSection(
-                                queue = aiActivity.queue,
-                                onOpenUrl = { openUrl(it) },
-                                onCopyUrl = { copyUrl(it) }
+                            QueuedAiStreamBanner(
+                                count = aiActivity.queue.size,
+                                onClick = { showQueueSheet = true }
                             )
                         }
                     }
@@ -401,6 +401,22 @@ fun AiLiveStreamScreen(
                 }
             }
         )
+    }
+
+    // BOTTOM SHEET: ОЧЕРЕДЬ ИИ-ПОТОКА
+    if (showQueueSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showQueueSheet = false },
+            containerColor = CyberneticSurfaceContainerLow,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = CyberneticTertiary.copy(alpha = 0.5f)) }
+        ) {
+            QueuedAiSheetContent(
+                queue = aiActivity.queue,
+                onClose = { showQueueSheet = false },
+                onOpenUrl = { openUrl(it) },
+                onCopyUrl = { copyUrl(it) }
+            )
+        }
     }
 }
 
@@ -929,46 +945,122 @@ private fun MetricSmallCard(
 }
 
 @Composable
-private fun QueuedAiItemsSection(
+private fun QueuedAiStreamBanner(
+    count: Int,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = CyberneticSurfaceContainerLow,
+        border = androidx.compose.foundation.BorderStroke(1.dp, CyberneticTertiary.copy(alpha = 0.5f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = CyberneticTertiary.copy(alpha = 0.16f),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = CyberneticTertiary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Очередь ИИ-потока",
+                            color = CyberneticOnSurface,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = CyberneticTertiary.copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                text = "$count",
+                                color = CyberneticTertiary,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Лоты > 2 мин • Нажмите для просмотра",
+                        color = CyberneticOnSurfaceVariant,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            Icon(
+                imageVector = Icons.Default.OpenInNew,
+                contentDescription = "Открыть список очереди",
+                tint = CyberneticTertiary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun QueuedAiSheetContent(
     queue: List<LiveAiItem>,
+    onClose: () -> Unit,
     onOpenUrl: (String) -> Unit,
     onCopyUrl: (String) -> Unit
 ) {
-    Card(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, CyberneticTertiary.copy(alpha = 0.45f), RoundedCornerShape(16.dp)),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CyberneticSurfaceContainerLow)
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Schedule,
-                        contentDescription = null,
-                        tint = CyberneticTertiary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = "ОЧЕРЕДЬ ИИ-ПОТОКА",
-                        color = CyberneticTertiary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp
-                    )
-                }
-
+                Icon(
+                    imageVector = Icons.Default.Schedule,
+                    contentDescription = null,
+                    tint = CyberneticTertiary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "ОЧЕРЕДЬ ИИ-ПОТОКА",
+                    color = CyberneticTertiary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = CyberneticTertiary.copy(alpha = 0.16f)
@@ -976,7 +1068,7 @@ private fun QueuedAiItemsSection(
                     Text(
                         text = "${queue.size}",
                         color = CyberneticTertiary,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
@@ -984,15 +1076,47 @@ private fun QueuedAiItemsSection(
                 }
             }
 
-            Text(
-                text = "Лоты, анализ которых занял более 2 минут, отложены в эту очередь и обрабатываются нейросетью в фоне без задержки поиска.",
-                color = CyberneticOnSurfaceVariant,
-                fontSize = 11.sp,
-                lineHeight = 15.sp
-            )
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Закрыть",
+                    tint = CyberneticOnSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                queue.forEach { item ->
+        Text(
+            text = "Лоты, анализ которых занял более 2 минут, отложены в эту очередь и обрабатываются нейросетью в фоне без задержки поиска.",
+            color = CyberneticOnSurfaceVariant,
+            fontSize = 12.sp,
+            lineHeight = 16.sp
+        )
+
+        if (queue.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Очередь пуста — все отложенные лоты обработаны",
+                    color = CyberneticOnSurfaceVariant,
+                    fontSize = 13.sp
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 440.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(queue, key = { it.listingId }) { item ->
                     QueuedItemCard(
                         item = item,
                         onOpenUrl = onOpenUrl,

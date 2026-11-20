@@ -34,6 +34,8 @@ class GroqVisionClient(
         private val requestLock = Mutex()
         @Volatile
         private var lastRequestFinishedMs = 0L
+        @Volatile
+        private var rateLimitedUntilMs = 0L
 
         const val SYSTEM_PROMPT = """Ты эксперт по идентификации товаров и фильтрации объявлений OLX.
 Тебе необходимо определить, соответствует ли объявление поисковому запросу пользователя.
@@ -113,53 +115,64 @@ class GroqVisionClient(
             return@withContext Result.failure(IllegalStateException("Groq API key is not configured"))
         }
 
-        getSemaphore().withPermit {
-            requestLock.withLock {
-                val now = System.currentTimeMillis()
-                val elapsed = now - lastRequestFinishedMs
-                if (elapsed < MIN_REQUEST_INTERVAL_MS) {
-                    delay(MIN_REQUEST_INTERVAL_MS - elapsed)
-                }
+        val userText = buildUserPrompt(listing, watch, base64Images.isNotEmpty())
+        val requestBodyJson = buildRequestBody(userText, base64Images, aiPreferences.modelId)
 
-                val userText = buildUserPrompt(listing, watch, base64Images.isNotEmpty())
-                val requestBodyJson = buildRequestBody(userText, base64Images, aiPreferences.modelId)
+        var lastException: Exception? = null
+        var retryDelayMs = 2000L
 
-                var lastException: Exception? = null
-                var retryDelayMs = 2000L
+        for (attempt in 0..MAX_RETRIES) {
+            if (attempt > 0) {
+                val jitter = Random.nextLong(200, 800)
+                delay(retryDelayMs + jitter)
+                retryDelayMs = (retryDelayMs * 2).coerceAtMost(30000L)
+            }
 
-                for (attempt in 0..MAX_RETRIES) {
-                    if (attempt > 0) {
-                        val jitter = Random.nextLong(200, 800)
-                        delay(retryDelayMs + jitter)
-                        retryDelayMs = (retryDelayMs * 2).coerceAtMost(30000L)
-                    }
+            // Respect shared rate-limit cooldown if 429 was recently encountered
+            val cooldownRemaining = rateLimitedUntilMs - System.currentTimeMillis()
+            if (cooldownRemaining > 0) {
+                Log.d(TAG, "Groq rate limit cooldown active: waiting ${cooldownRemaining}ms")
+                delay(cooldownRemaining)
+            }
 
-                    try {
-                        val timeoutMs = aiPreferences.timeoutSeconds * 1000
-                        val responseJson = executeHttpRequest(COMPLETIONS_ENDPOINT, apiKey, requestBodyJson, timeoutMs)
-                        lastRequestFinishedMs = System.currentTimeMillis()
-                        val result = parseCompletionResponse(responseJson)
-                        if (result != null) {
-                            return@withContext Result.success(result)
-                        } else {
-                            lastException = IllegalArgumentException("Failed to parse valid JSON from AI response")
+            val responseJson = try {
+                getSemaphore().withPermit {
+                    requestLock.withLock {
+                        val now = System.currentTimeMillis()
+                        val elapsed = now - lastRequestFinishedMs
+                        if (elapsed < MIN_REQUEST_INTERVAL_MS) {
+                            delay(MIN_REQUEST_INTERVAL_MS - elapsed)
                         }
-                    } catch (e: HttpRateLimitException) {
-                        Log.w(TAG, "Groq 429 Rate Limit (attempt $attempt/$MAX_RETRIES)")
-                        lastException = e
-                        val waitMs = max(e.retryAfterMs ?: 12000L, 10000L)
-                        retryDelayMs = waitMs
-                        lastRequestFinishedMs = System.currentTimeMillis()
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Groq API error on attempt $attempt: ${e.message}")
-                        lastException = e
-                        lastRequestFinishedMs = System.currentTimeMillis()
+                        try {
+                            val timeoutMs = aiPreferences.timeoutSeconds * 1000
+                            executeHttpRequest(COMPLETIONS_ENDPOINT, apiKey, requestBodyJson, timeoutMs)
+                        } finally {
+                            lastRequestFinishedMs = System.currentTimeMillis()
+                        }
                     }
                 }
+            } catch (e: HttpRateLimitException) {
+                Log.w(TAG, "Groq 429 Rate Limit (attempt $attempt/$MAX_RETRIES): ${e.message}")
+                lastException = e
+                val waitMs = max(e.retryAfterMs ?: 12000L, 8000L)
+                rateLimitedUntilMs = max(rateLimitedUntilMs, System.currentTimeMillis() + waitMs)
+                retryDelayMs = waitMs
+                continue
+            } catch (e: Exception) {
+                Log.w(TAG, "Groq API error on attempt $attempt: ${e.message}")
+                lastException = e
+                continue
+            }
 
-                Result.failure(lastException ?: RuntimeException("AI analysis failed after retries"))
+            val result = parseCompletionResponse(responseJson)
+            if (result != null) {
+                return@withContext Result.success(result)
+            } else {
+                lastException = IllegalArgumentException("Failed to parse valid JSON from AI response")
             }
         }
+
+        Result.failure(lastException ?: RuntimeException("AI analysis failed after retries"))
     }
 
     /**
@@ -382,9 +395,21 @@ ${listing.description.ifBlank { "Описание отсутствует" }}
             val statusCode = conn.responseCode
             if (statusCode == 429) {
                 val retryAfterHeader = conn.getHeaderField("Retry-After")
-                val retrySec = retryAfterHeader?.toLongOrNull()
+                var retrySec = retryAfterHeader?.toLongOrNull()
+                val errBody = try {
+                    conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                } catch (_: Exception) {
+                    ""
+                }
+                if (retrySec == null && errBody.isNotBlank()) {
+                    val match = Regex("""try again in ([\d\.]+)s""").find(errBody)
+                    if (match != null) {
+                        retrySec = match.groupValues[1].toDoubleOrNull()?.toLong()
+                    }
+                }
                 val retryMs = retrySec?.let { it * 1000L }
-                throw HttpRateLimitException("HTTP 429 Too Many Requests", retryMs)
+                val errorMsg = if (errBody.isNotBlank()) "HTTP 429 Too Many Requests: $errBody" else "HTTP 429 Too Many Requests"
+                throw HttpRateLimitException(errorMsg, retryMs)
             }
 
             if (statusCode in 200..299) {
