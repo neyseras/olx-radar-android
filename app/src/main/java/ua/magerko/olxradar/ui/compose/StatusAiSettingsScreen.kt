@@ -1258,9 +1258,7 @@ fun StatusAiSettingsScreen(
     // Model Selector Dialog
     if (showModelDialog) {
         val models = listOf(
-            "qwen/qwen3.8-27b",
-            "openai/gpt-oss-120b",
-            "openai/gpt-oss-20b"
+            "qwen/qwen3.8-27b"
         )
         AlertDialog(
             onDismissRequest = { showModelDialog = false },
