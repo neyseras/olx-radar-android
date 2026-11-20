@@ -10,7 +10,7 @@ import ua.magerko.olxradar.data.model.Watch
 
 @Database(
     entities = [Watch::class, Finding::class, SeenItem::class, AiCacheEntry::class],
-    version = 7,
+    version = 8,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -22,7 +22,7 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "olx_radar.db"
-        const val DATABASE_VERSION = 7
+        const val DATABASE_VERSION = 8
 
         @Volatile
         private var instance: AppDatabase? = null
@@ -39,7 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DATABASE_NAME
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .fallbackToDestructiveMigration()
                 .build()
         }

@@ -228,7 +228,8 @@ class MonitorService : Service() {
             // B2: Bug "First lot swallowed" fixed:
             // Use watch.initialized flag instead of seenIds.isEmpty().
             if (!watch.initialized) {
-                // First successful poll: silently mark all listings as seen
+                // Первый опрос: тихо сохраняем первые актуальные лоты (до 15 шт), чтобы радар не был пустым!
+                var initialSaved = 0
                 for (listing in listings) {
                     db.seenItemDao().markSeenAndPrune(
                         watchId = watch.id,
@@ -236,6 +237,27 @@ class MonitorService : Service() {
                         lastPushedAt = listing.pushedAt,
                         lastPrice = listing.price
                     )
+                    if (initialSaved < 15 && OlxParser.matchesWatch(listing, watch)) {
+                        val finding = Finding(
+                            watchId = watch.id,
+                            listingId = listing.id,
+                            title = listing.title,
+                            description = listing.description,
+                            price = listing.price,
+                            currency = listing.currency,
+                            cityName = listing.cityName,
+                            url = listing.url,
+                            photoUrl = listing.photoUrl,
+                            reason = "new",
+                            createdAt = listing.createdAt,
+                            foundAt = now,
+                            isRead = false,
+                            conditionScore = OlxParser.conditionScore(listing),
+                            isDelivery = listing.isDelivery
+                        )
+                        db.findingDao().insertFinding(finding)
+                        initialSaved++
+                    }
                 }
                 db.watchDao().setInitialized(watch.id, true)
             } else {
@@ -290,7 +312,8 @@ class MonitorService : Service() {
                                 aiPhotoMatch = aiEval.result?.photoMatchesTitle,
                                 aiReasons = aiEval.result?.reasons?.joinToString("\n• ", prefix = "• "),
                                 aiRejectReason = aiEval.result?.rejectReason,
-                                aiDetailsJson = aiEval.result?.toJsonString()
+                                aiDetailsJson = aiEval.result?.toJsonString(),
+                                isDelivery = listing.isDelivery
                             )
                             val insertedId = db.findingDao().insertFinding(finding)
                             val savedFinding = if (finding.id == 0L) finding.copy(id = insertedId) else finding

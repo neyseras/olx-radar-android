@@ -133,7 +133,11 @@ data class Finding(
     @ColumnInfo(name = "ai_reject_reason")
     val aiRejectReason: String? = null,
     @ColumnInfo(name = "ai_details_json")
-    val aiDetailsJson: String? = null
+    val aiDetailsJson: String? = null,
+
+    // OLX доставка / безопасная сделка
+    @ColumnInfo(name = "is_delivery", defaultValue = "0")
+    val isDelivery: Boolean = false
 )
 
 @Entity(
@@ -173,7 +177,13 @@ data class Listing(
     val photoUrls: List<String> = emptyList(),
     val createdAt: Long,
     val pushedAt: Long?,
-    val refreshedAt: Long?
+    val refreshedAt: Long?,
+    val isDelivery: Boolean = false
+)
+
+data class WatchPrice(
+    @ColumnInfo(name = "watch_id") val watchId: Long,
+    @ColumnInfo(name = "price") val price: Int
 )
 
 /**

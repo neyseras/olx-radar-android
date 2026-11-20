@@ -53,7 +53,8 @@ fun DealInspectorModal(
     onDelete: () -> Unit = {},
     onOpenUrl: (String) -> Unit = {},
     onRetryAi: () -> Unit = {},
-    isRetryingAi: Boolean = false
+    isRetryingAi: Boolean = false,
+    marketPrice: Int? = null
 ) {
     val context = LocalContext.current
     var isDescExpanded by remember { mutableStateOf(false) }
@@ -401,13 +402,29 @@ fun DealInspectorModal(
                     } else {
                         "Договорная"
                     }
-                    Text(
-                        text = priceFormatted,
-                        color = CyberneticOnSurface,
-                        fontSize = 26.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = (-0.5).sp
-                    )
+                    Column {
+                        Text(
+                            text = priceFormatted,
+                            color = CyberneticOnSurface,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = (-0.5).sp
+                        )
+                        if (marketPrice != null && marketPrice > 0 && finding.price != null && finding.price > 0) {
+                            val diffPercent = ((marketPrice - finding.price).toDouble() / marketPrice * 100).toInt()
+                            val marketText = if (diffPercent > 0) {
+                                "Рынок: ~${NumberFormat.getNumberInstance(Locale("uk", "UA")).format(marketPrice)} ₴ (-$diffPercent%)"
+                            } else {
+                                "Рынок: ~${NumberFormat.getNumberInstance(Locale("uk", "UA")).format(marketPrice)} ₴"
+                            }
+                            Text(
+                                text = marketText,
+                                color = if (diffPercent > 0) CyberneticSecondary else CyberneticOnSurfaceVariant,
+                                fontSize = 13.sp,
+                                fontWeight = if (diffPercent > 0) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
 
                     Button(
                         onClick = { openUrlDirectly() },
@@ -492,60 +509,63 @@ fun DealInspectorModal(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Feature chips row (OLX Доставка & Безопасная сделка)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = CyberneticSurfaceContainerHigh
+                // Feature chips row (OLX Доставка & Безопасная сделка - только если реально включена доставка)
+                if (finding.isDelivery) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = CyberneticSurfaceContainerHigh
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.LocalShipping,
-                                contentDescription = null,
-                                tint = CyberneticSecondary,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Text(
-                                text = "OLX Доставка",
-                                color = CyberneticOnSurface,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocalShipping,
+                                    contentDescription = null,
+                                    tint = CyberneticSecondary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = "OLX Доставка",
+                                    color = CyberneticOnSurface,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
-                    }
 
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = CyberneticSurfaceContainerHigh
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = CyberneticSurfaceContainerHigh
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.VerifiedUser,
-                                contentDescription = null,
-                                tint = CyberneticPrimary,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Text(
-                                text = "Безопасная сделка",
-                                color = CyberneticOnSurface,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.VerifiedUser,
+                                    contentDescription = null,
+                                    tint = CyberneticPrimary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = "Безопасная сделка",
+                                    color = CyberneticOnSurface,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
+                    Spacer(modifier = Modifier.height(16.dp))
+                } else {
+                    Spacer(modifier = Modifier.height(6.dp))
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
 
                 // GROQ VISION AI CARD (RICH AI DETAILS OR INFORMATIVE STATUS)
                 val hasAiSuccess = finding.aiScore != null || (parsedAiResult != null && parsedAiResult.confidence > 0)
@@ -580,6 +600,7 @@ fun DealInspectorModal(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
+                                modifier = Modifier.weight(1f, fill = false),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -614,7 +635,7 @@ fun DealInspectorModal(
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
-                                Column {
+                                Column(modifier = Modifier.weight(1f, fill = false)) {
                                     Text(
                                         text = when {
                                             isAiRejected -> "Отклонено Groq Vision"
@@ -625,7 +646,9 @@ fun DealInspectorModal(
                                         },
                                         color = CyberneticOnSurface,
                                         fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = when {
@@ -636,7 +659,9 @@ fun DealInspectorModal(
                                             else -> "Проверка по ключевым словам и цене"
                                         },
                                         color = CyberneticOnSurfaceVariant,
-                                        fontSize = 11.sp
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -661,7 +686,9 @@ fun DealInspectorModal(
                                             text = "Проверено ИИ",
                                             color = CyberneticSecondary,
                                             fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
                                 }

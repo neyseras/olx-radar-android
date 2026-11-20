@@ -176,3 +176,10 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
         db.execSQL("ALTER TABLE `watches` ADD COLUMN `publication_age` TEXT NOT NULL DEFAULT 'any'")
     }
 }
+
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Флаг OLX доставки / безопасной сделки
+        db.execSQL("ALTER TABLE `findings` ADD COLUMN `is_delivery` INTEGER NOT NULL DEFAULT 0")
+    }
+}

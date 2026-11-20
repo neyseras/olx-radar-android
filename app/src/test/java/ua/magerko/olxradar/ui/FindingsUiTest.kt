@@ -30,7 +30,14 @@ class FindingsUiTest {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        viewModel = FindingsViewModel(db.findingDao(), db.watchDao())
+        val aiPreferences = ua.magerko.olxradar.ai.AiPreferences(context)
+        val aiFilterEngine = ua.magerko.olxradar.ai.AiFilterEngine(
+            aiPreferences,
+            ua.magerko.olxradar.ai.GroqVisionClient(aiPreferences),
+            ua.magerko.olxradar.ai.AiImageProcessor(),
+            db.aiCacheDao()
+        )
+        viewModel = FindingsViewModel(db.findingDao(), db.watchDao(), aiFilterEngine)
     }
 
     @After

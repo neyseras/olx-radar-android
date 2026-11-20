@@ -90,6 +90,25 @@ class FindingsViewModel(
     val unreadCount: StateFlow<Int> = findingDao.getUnreadCountFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    /**
+     * Реальный расчет рыночной цены на основе медианы всех найденных цен в рамках каждого радара.
+     * Требует минимум 3 лотов для формирования достоверного рыночного ориентира.
+     */
+    val marketPricesByWatch: StateFlow<Map<Long, Int>> = findingDao.getAllValidPricesFlow()
+        .map { list ->
+            list.groupBy({ it.watchId }, { it.price })
+                .mapValues { (_, prices) ->
+                    if (prices.size >= 3) {
+                        val sorted = prices.sorted()
+                        sorted[sorted.size / 2]
+                    } else {
+                        0
+                    }
+                }
+                .filterValues { it > 0 }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     fun filterByWatch(watchId: Long?) {
         selectedWatchId.value = watchId
     }

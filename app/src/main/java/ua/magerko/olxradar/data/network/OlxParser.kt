@@ -40,7 +40,8 @@ object OlxParser {
         watch.priceFrom?.let { params.add("filter_float_price:from" to it.toString()) }
         watch.priceTo?.let { params.add("filter_float_price:to" to it.toString()) }
         watch.cityId?.let { params.add("city_id" to it.toString()) }
-        watch.categoryId?.let { params.add("category_id" to it.toString()) }
+        val effectiveCategoryId = watch.categoryId ?: presetCategoryId(watch.categoryPreset)
+        effectiveCategoryId?.let { params.add("category_id" to it.toString()) }
         watch.state?.let { params.add("filter_enum_state[0]" to it) }
         watch.ownerType?.let { params.add("owner_type" to it) }
 
@@ -149,6 +150,13 @@ object OlxParser {
             val refreshTimeStr = if (obj.has("last_refresh_time") && !obj.isNull("last_refresh_time")) obj.optString("last_refresh_time") else null
             val refreshedAt = if (refreshTimeStr.isNullOrEmpty() || refreshTimeStr == "null") null else parseDate(refreshTimeStr)
 
+            // SafeDeal / OLX Доставка
+            val safedeal = obj.optJSONObject("safedeal")
+            val deliveryObj = obj.optJSONObject("delivery")
+            val isDelivery = (safedeal != null && (safedeal.optBoolean("action", false) || safedeal.optBoolean("available", false))) ||
+                    (deliveryObj != null && deliveryObj.optBoolean("status", false)) ||
+                    obj.optString("delivery", "").isNotBlank()
+
             Listing(
                 id = id,
                 url = url,
@@ -165,7 +173,8 @@ object OlxParser {
                 photoUrls = photoUrls,
                 createdAt = createdAt,
                 pushedAt = pushedAt,
-                refreshedAt = refreshedAt
+                refreshedAt = refreshedAt,
+                isDelivery = isDelivery
             )
         } catch (e: Exception) {
             null
@@ -201,16 +210,19 @@ object OlxParser {
             }
         } else {
             // Price is present. Check currency compatibility (B3).
-            val listingCurrency = listing.currency?.trim()
-            val watchCurrency = watch.priceCurrency.trim()
-            val currenciesMatch = !listingCurrency.isNullOrBlank() &&
-                    listingCurrency.equals(watchCurrency, ignoreCase = true)
+            fun normalizeCurrency(c: String?): String = when (c?.trim()?.uppercase()) {
+                "UAH", "ГРН", "ГРН.", "₴" -> "UAH"
+                "USD", "$", "ДОЛ" -> "USD"
+                "EUR", "€", "ЕВРО" -> "EUR"
+                else -> c?.trim()?.uppercase() ?: ""
+            }
+            val currenciesMatch = normalizeCurrency(listing.currency) == normalizeCurrency(watch.priceCurrency)
 
             if (!currenciesMatch) {
                 // Rule: If currencies differ, skip price bounds check ("do not reject") and log warning.
                 Log.d(
                     TAG,
-                    "Currency mismatch: listing currency '$listingCurrency' != watch currency '$watchCurrency'. Price bounds not enforced."
+                    "Currency mismatch: listing currency '${listing.currency}' != watch currency '${watch.priceCurrency}'. Price bounds not enforced."
                 )
             } else {
                 if (watch.priceFrom != null && listing.price < watch.priceFrom) {
@@ -227,14 +239,12 @@ object OlxParser {
             return false
         }
 
-        // Category
-        if (watch.categoryId != null && listing.categoryId != null && listing.categoryId != watch.categoryId) {
-            return false
-        }
-        // Preset category (компьютеры / комплектующие ПК / телефоны)
-        val presetCategoryId = presetCategoryId(watch.categoryPreset)
-        if (presetCategoryId != null && listing.categoryId != null && !isCategoryOrSubcategory(listing.categoryId, presetCategoryId)) {
-            return false
+        // Category check (exact or subcategory match)
+        val targetCatId = watch.categoryId ?: presetCategoryId(watch.categoryPreset)
+        if (targetCatId != null && listing.categoryId != null) {
+            if (!isCategoryOrSubcategory(listing.categoryId, targetCatId)) {
+                Log.d(TAG, "Категория лота ${listing.categoryId} отличается от целевой $targetCatId")
+            }
         }
 
         // State (new / used)
@@ -337,6 +347,9 @@ object OlxParser {
     /** Проверяет, что объявление принадлежит категории или её подкатегории. */
     fun isCategoryOrSubcategory(listingCategoryId: Int, targetCategoryId: Int): Boolean {
         if (listingCategoryId == targetCategoryId) return true
-        return targetCategoryId == CATEGORY_COMPUTERS && listingCategoryId in SUBCATEGORIES_COMPUTERS
+        if (targetCategoryId == CATEGORY_COMPUTERS && (listingCategoryId in SUBCATEGORIES_COMPUTERS || listingCategoryId in 70..90)) return true
+        if (targetCategoryId == CATEGORY_PC_COMPONENTS && (listingCategoryId in SUBCATEGORIES_COMPUTERS || listingCategoryId in 450..490)) return true
+        if (targetCategoryId == CATEGORY_PHONES && (listingCategoryId in 44..55 || listingCategoryId in 1200..1220)) return true
+        return false
     }
 }

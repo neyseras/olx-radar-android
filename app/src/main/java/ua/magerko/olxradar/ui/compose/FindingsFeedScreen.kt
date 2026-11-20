@@ -50,7 +50,8 @@ fun FindingsFeedScreen(
     onFilterByWatch: (Long?) -> Unit,
     onFindingClick: (Finding) -> Unit,
     onDeleteFinding: (Finding) -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    marketPricesByWatch: Map<Long, Int> = emptyMap()
 ) {
     val context = LocalContext.current
     val currentList = if (isRejectedTab) rejectedFindings else findings
@@ -337,7 +338,8 @@ fun FindingsFeedScreen(
                         Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
                         ua.magerko.olxradar.util.AppLog.w("FindingsScreen", "Не удалось открыть ссылку: $url", e)
                     }
-                }
+                },
+                marketPricesByWatch = marketPricesByWatch
             )
         }
     }
@@ -348,7 +350,8 @@ fun AdaptiveFindingsList(
     findings: List<Finding>,
     onFindingClick: (Finding) -> Unit,
     onDeleteFinding: (Finding) -> Unit,
-    onOpenUrl: (String) -> Unit
+    onOpenUrl: (String) -> Unit,
+    marketPricesByWatch: Map<Long, Int> = emptyMap()
 ) {
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -366,7 +369,8 @@ fun AdaptiveFindingsList(
                     finding = finding,
                     onClick = { onFindingClick(finding) },
                     onDelete = { onDeleteFinding(finding) },
-                    onOpenUrl = onOpenUrl
+                    onOpenUrl = onOpenUrl,
+                    marketPrice = marketPricesByWatch[finding.watchId]
                 )
             }
 
@@ -411,7 +415,8 @@ fun FindingCard(
     finding: Finding,
     onClick: () -> Unit,
     onDelete: () -> Unit,
-    onOpenUrl: (String) -> Unit
+    onOpenUrl: (String) -> Unit,
+    marketPrice: Int? = null
 ) {
     Card(
         onClick = onClick,
@@ -470,54 +475,42 @@ fun FindingCard(
                     }
                 }
 
-                // Top Badges
+                // Top Badges (с отступом справа, чтобы не наползать на кнопку удаления и не ломать текст вертикально)
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        .padding(start = 10.dp, top = 10.dp, end = 52.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // FIX: раньше здесь была фейковая плашка «Выгодная цена (-35%)» —
-                    // показываем бейдж выгодной цены только по реальной оценке AI.
-                    finding.aiScore?.takeIf { it >= 80 }?.let { ai ->
+                    finding.aiScore?.let { score ->
+                        val isBargain = score >= 80
                         Surface(
                             shape = RoundedCornerShape(14.dp),
-                            color = CyberneticSecondaryContainer.copy(alpha = 0.95f)
+                            color = if (isBargain) CyberneticSecondaryContainer.copy(alpha = 0.95f) else CyberneticSurfaceContainerLowest.copy(alpha = 0.85f)
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(3.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Verified,
-                                    contentDescription = null,
-                                    tint = CyberneticOnSecondaryContainer,
-                                    modifier = Modifier.size(12.dp)
-                                )
+                                if (isBargain) {
+                                    Icon(
+                                        imageVector = Icons.Default.Verified,
+                                        contentDescription = null,
+                                        tint = CyberneticOnSecondaryContainer,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
                                 Text(
-                                    text = "Выгодная цена (AI ${ai}%)",
-                                    color = CyberneticOnSecondaryContainer,
+                                    text = if (isBargain) "Выгодная цена ($score%)" else "ИИ: $score%",
+                                    color = if (isBargain) CyberneticOnSecondaryContainer else CyberneticPrimary,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
-                        }
-                    }
-
-                    // FIX: score больше не выдуманный (был «?: 96») — только реальный AI-балл.
-                    finding.aiScore?.let { score ->
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = CyberneticSurfaceContainerLowest.copy(alpha = 0.85f)
-                        ) {
-                            Text(
-                                text = "Совпадение $score%",
-                                color = CyberneticPrimary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
                         }
                     }
 
@@ -537,6 +530,8 @@ fun FindingCard(
                                 color = Color.White,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
                         }
@@ -618,7 +613,7 @@ fun FindingCard(
                     lineHeight = 20.sp
                 )
 
-                // Price and Market Row
+                // Price and Market Row (реальный расчет рынка по медиане цен радара)
                 Row(
                     verticalAlignment = Alignment.Bottom,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -632,15 +627,24 @@ fun FindingCard(
                         text = priceFormatted,
                         color = CyberneticOnSurface,
                         fontSize = 20.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        softWrap = false
                     )
-                    if (finding.price != null && finding.price > 0) {
-                        val estMarket = (finding.price * 1.35).toInt()
+                    if (marketPrice != null && marketPrice > 0 && finding.price != null && finding.price > 0) {
+                        val diffPercent = ((marketPrice - finding.price).toDouble() / marketPrice * 100).toInt()
+                        val marketText = if (diffPercent > 0) {
+                            "Рынок: ~${NumberFormat.getNumberInstance(Locale("uk", "UA")).format(marketPrice)} ₴ (-$diffPercent%)"
+                        } else {
+                            "Рынок: ~${NumberFormat.getNumberInstance(Locale("uk", "UA")).format(marketPrice)} ₴"
+                        }
                         Text(
-                            text = "Рынок: ~${NumberFormat.getNumberInstance(Locale("uk", "UA")).format(estMarket)} ₴",
-                            color = CyberneticSecondary,
+                            text = marketText,
+                            color = if (diffPercent > 0) CyberneticSecondary else CyberneticOnSurfaceVariant,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
+                            fontWeight = if (diffPercent > 0) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(bottom = 2.dp)
                         )
                     }

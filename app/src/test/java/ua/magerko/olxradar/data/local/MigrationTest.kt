@@ -142,9 +142,9 @@ class MigrationTest {
         v1Db.close()
         helper.close()
 
-        // 2. Open with Room v6 adding MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6
+        // 2. Open with Room v8 adding all migrations
         val roomDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
             .build()
 
         runBlocking {
@@ -182,6 +182,7 @@ class MigrationTest {
             assertFalse("Default is_read must be false", finding.isRead)
             assertNull("Default ai_score must be null", finding.aiScore)
             assertNull("Default ai_status must be null", finding.aiStatus)
+            assertFalse("Default is_delivery must be false", finding.isDelivery)
 
             // Verify AI Cache table exists and works
             roomDb.aiCacheDao().insert(AiCacheEntry(9991L, "{\"is_match\":true,\"confidence\":95}"))

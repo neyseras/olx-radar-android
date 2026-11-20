@@ -80,14 +80,14 @@ class AiFilterEngine(
             } else {
                 val fresh = runAnalysis(listing, watch)
                 if (fresh.isFailure) {
-                    return handleAiError(fresh.exceptionOrNull())
+                    return handleAiError(fresh.exceptionOrNull(), listing, watch)
                 }
                 analysisResult = fresh.getOrThrow()
             }
         } else {
             val fresh = runAnalysis(listing, watch)
             if (fresh.isFailure) {
-                return handleAiError(fresh.exceptionOrNull())
+                return handleAiError(fresh.exceptionOrNull(), listing, watch)
             }
             analysisResult = fresh.getOrThrow()
             try {
@@ -97,7 +97,25 @@ class AiFilterEngine(
             }
         }
 
-        return evaluateResult(analysisResult)
+        val eval = evaluateResult(analysisResult)
+        val reasonsJoined = if (analysisResult.reasons.isNotEmpty()) {
+            analysisResult.reasons.joinToString("\n• ", prefix = "• ")
+        } else {
+            analysisResult.rejectReason ?: (if (analysisResult.isMatch) "Подходит под условия поиска" else "Не подходит под критерии")
+        }
+        AiThoughtLogger.log(
+            AiThoughtLog(
+                listingId = listing.id,
+                title = listing.title,
+                price = if (listing.price != null) "${listing.price} ${listing.currency ?: "грн"}" else "Договорная",
+                radarTitle = watch.title,
+                status = eval.status,
+                confidence = analysisResult.confidence,
+                reasons = reasonsJoined,
+                rawJson = analysisResult.toJsonString()
+            )
+        )
+        return eval
     }
     /**
      * Повторный ИИ-анализ уже сохранённой находки: сбрасывает кэш по listing_id,
@@ -202,7 +220,9 @@ class AiFilterEngine(
         val isManual = aiPreferences.isManualReviewMode
         val isStrict = aiPreferences.isStrictMode
         val notifyRejected = aiPreferences.isNotifyRejected
-        val shouldSave = !isStrict && isManual
+        // Отклонённые находки сохраняются в режиме ручной проверки (когда strict mode выключен),
+        // чтобы они корректно отображались во вкладке «Отфильтрованные» (rejectedFindingsFlow).
+        val shouldSaveRejected = !isStrict && isManual
 
         // 1. Completeness filter: Box only or parts only -> REJECTED
         val isBoxOrParts = ai.completeness in listOf("box_only", "parts_only", "parts", "box")
@@ -210,7 +230,7 @@ class AiFilterEngine(
             return AiEvaluation(
                 status = AiStatus.REJECTED,
                 shouldNotify = notifyRejected,
-                shouldSaveFinding = shouldSave,
+                shouldSaveFinding = shouldSaveRejected,
                 result = ai
             )
         }
@@ -220,7 +240,7 @@ class AiFilterEngine(
             return AiEvaluation(
                 status = AiStatus.REJECTED,
                 shouldNotify = notifyRejected,
-                shouldSaveFinding = shouldSave,
+                shouldSaveFinding = shouldSaveRejected,
                 result = ai
             )
         }
@@ -230,7 +250,7 @@ class AiFilterEngine(
             return AiEvaluation(
                 status = AiStatus.REJECTED,
                 shouldNotify = notifyRejected,
-                shouldSaveFinding = shouldSave,
+                shouldSaveFinding = shouldSaveRejected,
                 result = ai
             )
         }
@@ -283,7 +303,7 @@ class AiFilterEngine(
                         AiEvaluation(
                             status = AiStatus.REJECTED,
                             shouldNotify = notifyRejected,
-                            shouldSaveFinding = false,
+                            shouldSaveFinding = shouldSaveRejected,
                             result = ai
                         )
                     } else if (isManual) {
@@ -298,7 +318,7 @@ class AiFilterEngine(
                         AiEvaluation(
                             status = AiStatus.REJECTED,
                             shouldNotify = notifyRejected,
-                            shouldSaveFinding = false,
+                            shouldSaveFinding = shouldSaveRejected,
                             result = ai
                         )
                     }
@@ -312,7 +332,7 @@ class AiFilterEngine(
             AiEvaluation(
                 status = AiStatus.REJECTED,
                 shouldNotify = notifyRejected,
-                shouldSaveFinding = false,
+                shouldSaveFinding = shouldSaveRejected,
                 result = ai
             )
         } else if (isManual) {
@@ -326,15 +346,32 @@ class AiFilterEngine(
             AiEvaluation(
                 status = AiStatus.REJECTED,
                 shouldNotify = notifyRejected,
-                shouldSaveFinding = false,
+                shouldSaveFinding = shouldSaveRejected,
                 result = ai
             )
         }
     }
 
-    private fun handleAiError(e: Throwable?): AiEvaluation {
+    private fun handleAiError(e: Throwable?): AiEvaluation = handleAiError(e, null, null)
+
+    private fun handleAiError(e: Throwable?, listing: Listing? = null, watch: Watch? = null): AiEvaluation {
         val errorMsg = e?.message ?: "AI request failed"
         Log.w(TAG, "AI processing error: $errorMsg")
+        if (listing != null && watch != null) {
+            AiThoughtLogger.log(
+                AiThoughtLog(
+                    listingId = listing.id,
+                    title = listing.title,
+                    price = if (listing.price != null) "${listing.price} ${listing.currency ?: "грн"}" else "Договорная",
+                    radarTitle = watch.title,
+                    status = AiStatus.ERROR,
+                    confidence = null,
+                    reasons = "Ошибка запроса к Groq Vision API",
+                    rawJson = "",
+                    error = errorMsg
+                )
+            )
+        }
         // Graceful fallback: do NOT drop the listing when AI fails!
         return AiEvaluation(
             status = AiStatus.ERROR,

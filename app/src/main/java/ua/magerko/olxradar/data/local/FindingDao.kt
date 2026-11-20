@@ -3,6 +3,7 @@ package ua.magerko.olxradar.data.local
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 import ua.magerko.olxradar.data.model.Finding
+import ua.magerko.olxradar.data.model.WatchPrice
 
 data class WatchFindingsCount(
     @ColumnInfo(name = "watch_id") val watchId: Long,
@@ -11,6 +12,12 @@ data class WatchFindingsCount(
 
 @Dao
 interface FindingDao {
+
+    @Query("SELECT watch_id, price FROM findings WHERE price IS NOT NULL AND price > 0 AND (ai_status != 'rejected' OR ai_status IS NULL)")
+    fun getAllValidPricesFlow(): Flow<List<WatchPrice>>
+
+    @Query("SELECT price FROM findings WHERE watch_id = :watchId AND price IS NOT NULL AND price > 0 AND (ai_status != 'rejected' OR ai_status IS NULL)")
+    fun getPricesForWatchFlow(watchId: Long): Flow<List<Int>>
 
     @Query("SELECT watch_id, COUNT(*) as count FROM findings WHERE ai_status != 'rejected' OR ai_status IS NULL GROUP BY watch_id")
     fun getFindingsCountsFlow(): Flow<List<WatchFindingsCount>>

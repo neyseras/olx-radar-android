@@ -118,6 +118,8 @@ fun StatusAiSettingsScreen(
 
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
+    var showAiThoughtsDialog by remember { mutableStateOf(false) }
+    val aiThoughtLogs by ua.magerko.olxradar.ai.AiThoughtLogger.logsFlow.collectAsState()
     var testStatusText by remember { mutableStateOf<String?>(null) }
     var testStatusSuccess by remember { mutableStateOf<Boolean?>(null) }
     var isTestingKey by remember { mutableStateOf(false) }
@@ -997,22 +999,6 @@ fun StatusAiSettingsScreen(
                         Divider(color = CyberneticSurfaceContainerHighest, thickness = 1.dp)
 
                         RuleToggleItem(
-                            title = "Уведомлять только о ценах ниже рынка",
-                            description = "Флаг, если цена минимум на 20% ниже средней рыночной",
-                            checked = true,
-                            onCheckedChange = { }
-                        )
-                        Divider(color = CyberneticSurfaceContainerHighest, thickness = 1.dp)
-
-                        RuleToggleItem(
-                            title = "Звуковой сигнал при супер-выгодных сделках",
-                            description = "Принудительное уведомление в обход режима «Не беспокоить»",
-                            checked = true,
-                            onCheckedChange = { }
-                        )
-                        Divider(color = CyberneticSurfaceContainerHighest, thickness = 1.dp)
-
-                        RuleToggleItem(
                             title = "Без звука для отклоненных",
                             description = "Тихо отправлять отсеянное во вкладку «Отклонено»",
                             checked = aiNotifyRejected,
@@ -1098,6 +1084,29 @@ fun StatusAiSettingsScreen(
                         modifier = Modifier.padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // Кнопка: Логи мышления ИИ
+                        Button(
+                            onClick = { showAiThoughtsDialog = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CyberneticSecondary.copy(alpha = 0.25f),
+                                contentColor = CyberneticSecondary
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Логи мышления ИИ (${aiThoughtLogs.size})",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Divider(color = CyberneticSurfaceContainerHighest, thickness = 1.dp)
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1301,6 +1310,199 @@ fun StatusAiSettingsScreen(
             }
         )
     }
+
+    if (showAiThoughtsDialog) {
+        AiThoughtsDialog(
+            logs = aiThoughtLogs,
+            onDismiss = { showAiThoughtsDialog = false }
+        )
+    }
+}
+
+@Composable
+fun AiThoughtsDialog(
+    logs: List<ua.magerko.olxradar.ai.AiThoughtLog>,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Логи мышления ИИ (${logs.size})",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = CyberneticOnSurface
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            cm.setPrimaryClip(
+                                android.content.ClipData.newPlainText("AI Thoughts", ua.magerko.olxradar.ai.AiThoughtLogger.asFormattedText())
+                            )
+                            Toast.makeText(context, "Логи мышления ИИ скопированы", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = CyberneticPrimary,
+                            contentColor = CyberneticOnPrimary
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(38.dp)
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Копировать", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            ua.magerko.olxradar.ai.AiThoughtLogger.clear()
+                            Toast.makeText(context, "Логи очищены", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(38.dp)
+                    ) {
+                        Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Очистить", fontSize = 12.sp)
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = CyberneticSurfaceContainerLow,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(340.dp)
+                ) {
+                    if (logs.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "Логи мышления ИИ пусты.\nОни появятся при следующем анализе лота.",
+                                color = CyberneticOnSurfaceVariant,
+                                fontSize = 12.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize().padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(logs.size) { idx ->
+                                val log = logs[idx]
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = CyberneticSurfaceContainerHigh,
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        when (log.status) {
+                                            AiStatus.REJECTED -> CyberneticError.copy(alpha = 0.4f)
+                                            AiStatus.MATCH -> CyberneticSecondary.copy(alpha = 0.4f)
+                                            AiStatus.NEEDS_REVIEW -> CyberneticTertiary.copy(alpha = 0.4f)
+                                            else -> CyberneticOutlineVariant.copy(alpha = 0.2f)
+                                        }
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "${log.timeFormatted()} · ${log.status.uppercase()}",
+                                                color = when (log.status) {
+                                                    AiStatus.REJECTED -> CyberneticError
+                                                    AiStatus.MATCH -> CyberneticSecondary
+                                                    AiStatus.NEEDS_REVIEW -> CyberneticTertiary
+                                                    else -> CyberneticPrimary
+                                                },
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            if (log.confidence != null) {
+                                                Text(
+                                                    text = "Уверенность: ${log.confidence}%",
+                                                    color = CyberneticOnSurfaceVariant,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                        }
+
+                                        Text(
+                                            text = log.title,
+                                            color = CyberneticOnSurface,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = "Радар: ${log.radarTitle}",
+                                                color = CyberneticPrimary,
+                                                fontSize = 10.sp
+                                            )
+                                            Text(
+                                                text = log.price,
+                                                color = CyberneticSecondary,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        if (!log.error.isNullOrBlank()) {
+                                            Text(
+                                                text = "Ошибка: ${log.error}",
+                                                color = CyberneticError,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+
+                                        if (log.reasons.isNotBlank()) {
+                                            Text(
+                                                text = log.reasons,
+                                                color = CyberneticOnSurfaceVariant,
+                                                fontSize = 10.sp,
+                                                lineHeight = 14.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Закрыть", color = CyberneticPrimary)
+            }
+        }
+    )
 }
 
 @Composable

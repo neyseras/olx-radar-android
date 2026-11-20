@@ -54,6 +54,7 @@ fun MainComposeScreen(
     val selectedWatchId by findingsViewModel.selectedWatchIdState.collectAsState()
     val isRejectedTabState by findingsViewModel.isRejectedTabState.collectAsState()
     val unreadCount by findingsViewModel.unreadCount.collectAsState()
+    val marketPricesByWatch by findingsViewModel.marketPricesByWatch.collectAsState()
 
     val watchesUi by watchesViewModel.watchesUi.collectAsState()
     val radarStatus by watchesViewModel.radarStatus.collectAsState()
@@ -144,7 +145,8 @@ fun MainComposeScreen(
                                     inspectFinding = finding
                                 },
                                 onDeleteFinding = { findingsViewModel.deleteFinding(it) },
-                                onNavigateToSettings = { currentTab = NavigationTab.SETTINGS }
+                                onNavigateToSettings = { currentTab = NavigationTab.SETTINGS },
+                                marketPricesByWatch = marketPricesByWatch
                             )
                         }
 
@@ -166,7 +168,8 @@ fun MainComposeScreen(
                                     inspectFinding = finding
                                 },
                                 onDeleteFinding = { findingsViewModel.deleteFinding(it) },
-                                onNavigateToSettings = { currentTab = NavigationTab.SETTINGS }
+                                onNavigateToSettings = { currentTab = NavigationTab.SETTINGS },
+                                marketPricesByWatch = marketPricesByWatch
                             )
                         }
 
@@ -382,7 +385,8 @@ fun MainComposeScreen(
                         watches.find { it.id == finding.watchId }?.let { watch ->
                             findingsViewModel.retryAiAnalysis(finding, watch)
                         }
-                    }
+                    },
+                    marketPrice = marketPricesByWatch[finding.watchId]
                 )
             }
         }
