@@ -634,63 +634,79 @@ fun FindingCard(
                         fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
-                    Text(
-                        text = "Рынок: ~4 500 ₴",
-                        color = CyberneticSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(bottom = 2.dp)
-                    )
+                    if (finding.price != null && finding.price > 0) {
+                        val estMarket = (finding.price * 1.35).toInt()
+                        Text(
+                            text = "Рынок: ~${NumberFormat.getNumberInstance(Locale("uk", "UA")).format(estMarket)} ₴",
+                            color = CyberneticSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        )
+                    }
                 }
 
-                // Groq Vision Inspection Box
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = CyberneticSurfaceContainerLow,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberneticOutlineVariant.copy(alpha = 0.2f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                // Groq Vision Inspection Box (only when AI analysis exists or has reasons)
+                val reasonsList = remember(finding.aiReasons, finding.aiProduct) {
+                    if (!finding.aiReasons.isNullOrBlank()) {
+                        finding.aiReasons.split("\n", ";").map { it.replace("•", "").trim() }.filter { it.isNotBlank() }.take(3)
+                    } else if (!finding.aiProduct.isNullOrBlank()) {
+                        listOf(finding.aiProduct.trim())
+                    } else {
+                        emptyList()
+                    }
+                }
+
+                if (finding.aiStatus != null || reasonsList.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = CyberneticSurfaceContainerLow,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CyberneticOutlineVariant.copy(alpha = 0.2f)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = CyberneticPrimary,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Text(
-                                text = "Проверка фото (Groq Vision):",
-                                color = CyberneticPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = CyberneticPrimary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "Проверка фото (Groq Vision):",
+                                    color = CyberneticPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
 
-                        val reasonsList = if (!finding.aiReasons.isNullOrBlank()) {
-                            finding.aiReasons.split("\n", ";").filter { it.isNotBlank() }.take(3)
-                        } else {
-                            listOf(
-                                "Оригинальная система охлаждения и маркировка",
-                                "Заводская гарантийная пломба на месте",
-                                "Следов майнинга и перегрева текстолита нет"
-                            )
-                        }
-
-                        reasonsList.forEach { reason ->
-                            Text(
-                                text = "• ${reason.trim()}",
-                                color = CyberneticOnSurfaceVariant,
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            if (reasonsList.isNotEmpty()) {
+                                reasonsList.forEach { reason ->
+                                    Text(
+                                        text = "• ${reason.trim()}",
+                                        color = CyberneticOnSurfaceVariant,
+                                        fontSize = 11.sp,
+                                        lineHeight = 15.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = "• Анализ завершён (${finding.aiStatus})",
+                                    color = CyberneticOnSurfaceVariant,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
