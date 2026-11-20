@@ -681,7 +681,7 @@ private fun ProcessedAiItemCard(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f, fill = false)
                 ) {
                     Surface(
                         shape = RoundedCornerShape(4.dp),
@@ -692,6 +692,9 @@ private fun ProcessedAiItemCard(
                             color = CyberneticOnSurfaceVariant,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            softWrap = false,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
@@ -712,7 +715,9 @@ private fun ProcessedAiItemCard(
                     Text(
                         text = "· $agoText" + (durationText?.let { " ($it)" } ?: ""),
                         color = CyberneticOnSurfaceVariant.copy(alpha = 0.7f),
-                        fontSize = 10.sp
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
 
@@ -725,6 +730,8 @@ private fun ProcessedAiItemCard(
                         color = statusBadgeColor,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }

@@ -180,6 +180,7 @@ fun DealInspectorModal(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
+                        modifier = Modifier.weight(1f, fill = false),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -200,7 +201,9 @@ fun DealInspectorModal(
                                     color = CyberneticPrimary,
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
@@ -214,7 +217,8 @@ fun DealInspectorModal(
                         if (!watchTitle.isNullOrBlank()) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = CyberneticPrimary.copy(alpha = 0.12f)
+                                color = CyberneticPrimary.copy(alpha = 0.12f),
+                                modifier = Modifier.weight(1f, fill = false)
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -233,7 +237,8 @@ fun DealInspectorModal(
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        overflow = TextOverflow.Ellipsis,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -271,7 +276,9 @@ fun DealInspectorModal(
                                     text = statusBadgeText,
                                     color = statusBadgeColor,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
