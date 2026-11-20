@@ -67,6 +67,9 @@ interface FindingDao {
     @Query("DELETE FROM findings WHERE id = :id")
     suspend fun deleteFinding(id: Long)
 
+    @Query("DELETE FROM findings WHERE listing_id = :listingId")
+    suspend fun deleteFindingByListingId(listingId: Long)
+
     @Query("DELETE FROM findings")
     suspend fun clearAllFindings()
 

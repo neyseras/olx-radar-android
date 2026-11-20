@@ -167,6 +167,9 @@ class FindingsViewModel(
     fun deleteFinding(finding: Finding) {
         viewModelScope.launch {
             findingDao.deleteFinding(finding.id)
+            // Если лот был в очереди ИИ-потока — мгновенно удаляем его оттуда и отменяем обработку
+            ua.magerko.olxradar.ai.AiRuntime.dequeue(finding.listingId)
+            ua.magerko.olxradar.ai.AiQueueManager.cancel(finding.listingId)
         }
     }
 
@@ -193,6 +196,8 @@ class FindingsViewModel(
     fun clearQueuedFindings() {
         viewModelScope.launch {
             findingDao.clearQueuedFindings()
+            ua.magerko.olxradar.ai.AiRuntime.clearQueue()
+            ua.magerko.olxradar.ai.AiQueueManager.cancelAll()
         }
     }
 }

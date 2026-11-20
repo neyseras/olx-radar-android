@@ -216,5 +216,11 @@ class FindingDaoTest {
 
         val activeAfterClear = findingDao.getActiveFindingsFlow().first()
         assertEquals(3, activeAfterClear.size)
+
+        // Delete by listingId test
+        findingDao.deleteFindingByListingId(101L)
+        val activeAfterDelete = findingDao.getActiveFindingsFlow().first()
+        assertEquals(2, activeAfterDelete.size)
+        assertFalse(activeAfterDelete.any { it.listingId == 101L })
     }
 }

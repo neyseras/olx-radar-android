@@ -236,6 +236,10 @@ object AiRuntime {
         _activity.update { it.copy(history = emptyList()) }
     }
 
+    fun clearQueue() {
+        _activity.update { it.copy(queue = emptyList()) }
+    }
+
     fun enqueue(item: LiveAiItem) {
         _activity.update { cur ->
             val exists = cur.queue.any { it.listingId == item.listingId }

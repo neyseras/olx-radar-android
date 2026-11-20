@@ -36,6 +36,25 @@ object AiQueueManager {
     private val activeJobMutex = Mutex()
     private var isWorkerRunning = false
 
+    private val cancelledListingIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
+
+    fun cancel(listingId: Long) {
+        cancelledListingIds.add(listingId)
+        AiRuntime.dequeue(listingId)
+        scope.launch {
+            try {
+                database?.findingDao()?.deleteFindingByListingId(listingId)
+            } catch (e: Exception) {
+                AppLog.w(TAG, "Ошибка удаления отменённого лота $listingId из БД", e)
+            }
+        }
+    }
+
+    fun cancelAll() {
+        cancelledListingIds.clear()
+        AiRuntime.clearQueue()
+    }
+
     fun init(
         engine: AiFilterEngine,
         database: AppDatabase,
@@ -95,6 +114,21 @@ object AiQueueManager {
         val listing = task.listing
         val watch = task.watch
 
+        // 1. Проверяем, не отменил/удалил ли пользователь этот лот
+        if (cancelledListingIds.remove(listing.id)) {
+            AppLog.i(TAG, "Очередь ИИ: лот '${listing.title.take(50)}' [ID: ${listing.id}] отменён пользователем, пропуск")
+            AiRuntime.dequeue(listing.id)
+            return
+        }
+
+        // 2. Проверяем, существует ли ещё находка в базе данных (если удалена — не тратим запросы к ИИ)
+        val existing = db.findingDao().getFindingByListingId(listing.id)
+        if (existing == null) {
+            AppLog.i(TAG, "Очередь ИИ: лот '${listing.title.take(50)}' [ID: ${listing.id}] удалён из базы, отмена анализа")
+            AiRuntime.dequeue(listing.id)
+            return
+        }
+
         AppLog.i(TAG, "Очередь ИИ: начало обработки '${listing.title.take(50)}' (радар '${watch.title}')")
 
         // Запускаем анализ без 2-минутного таймаута
@@ -103,11 +137,17 @@ object AiQueueManager {
         // Извлекаем из очереди в AiRuntime
         AiRuntime.dequeue(listing.id)
 
+        // Проверяем, не удалил ли пользователь лот, пока шёл анализ нейросетью
+        if (cancelledListingIds.remove(listing.id)) {
+            AppLog.i(TAG, "Очередь ИИ: лот '${listing.title.take(50)}' был отменён во время анализа, результат отброшен")
+            return
+        }
+
         // Обновляем запись находки в базе данных
         try {
-            val existing = db.findingDao().getFindingByListingId(listing.id)
-            if (existing != null) {
-                val updated = existing.copy(
+            val freshExisting = db.findingDao().getFindingByListingId(listing.id)
+            if (freshExisting != null) {
+                val updated = freshExisting.copy(
                     aiScore = eval.result?.confidence,
                     aiStatus = eval.status,
                     aiProduct = eval.result?.detectedProduct,
@@ -125,7 +165,7 @@ object AiQueueManager {
                 }
                 AppLog.i(TAG, "Очередь ИИ: лот '${listing.title.take(50)}' обработан со статусом ${eval.status}")
             } else {
-                AppLog.w(TAG, "Очередь ИИ: находка для ${listing.id} не найдена в базе")
+                AppLog.i(TAG, "Очередь ИИ: лот '${listing.title.take(50)}' был удалён из базы во время анализа")
             }
         } catch (e: Exception) {
             AppLog.e(TAG, "Ошибка обновления находки из очереди", e)

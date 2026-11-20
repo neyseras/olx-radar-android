@@ -1032,6 +1032,7 @@ private fun QueuedAiSheetContent(
     onOpenUrl: (String) -> Unit,
     onCopyUrl: (String) -> Unit
 ) {
+    val context = LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1076,16 +1077,41 @@ private fun QueuedAiSheetContent(
                 }
             }
 
-            IconButton(
-                onClick = onClose,
-                modifier = Modifier.size(32.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Закрыть",
-                    tint = CyberneticOnSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (queue.isNotEmpty()) {
+                    TextButton(
+                        onClick = {
+                            ua.magerko.olxradar.ai.AiQueueManager.cancelAll()
+                            Toast.makeText(context, "Очередь очищена", Toast.LENGTH_SHORT).show()
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = null,
+                            tint = CyberneticError,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Очистить",
+                            color = CyberneticError,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Закрыть",
+                        tint = CyberneticOnSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
 
@@ -1134,6 +1160,7 @@ private fun QueuedItemCard(
     onOpenUrl: (String) -> Unit,
     onCopyUrl: (String) -> Unit
 ) {
+    val context = LocalContext.current
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = CyberneticSurfaceContainerHigh,
@@ -1234,6 +1261,20 @@ private fun QueuedItemCard(
                                 modifier = Modifier.size(15.dp)
                             )
                         }
+                    }
+                    IconButton(
+                        onClick = {
+                            ua.magerko.olxradar.ai.AiQueueManager.cancel(item.listingId)
+                            Toast.makeText(context, "Удалено из очереди", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = "Удалить из очереди",
+                            tint = CyberneticError.copy(alpha = 0.85f),
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
                 }
             }
