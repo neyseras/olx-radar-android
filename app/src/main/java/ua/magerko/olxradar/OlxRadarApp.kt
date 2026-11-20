@@ -29,6 +29,8 @@ class OlxRadarApp : Application() {
         )
         // Initialize database
         AppDatabase.getInstance(this)
+        // Initialize AI thought logger
+        ua.magerko.olxradar.ai.AiThoughtLogger.init(this)
         // Initialize notification channels
         AppLog.i("App", "OLX Radar запущен, версия ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})")
         NotificationHelper(this)

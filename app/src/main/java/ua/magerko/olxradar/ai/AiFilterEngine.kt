@@ -100,6 +100,19 @@ class AiFilterEngine(
                         radarTitle = watch.title,
                         photosTotal = (listing.photoUrls.takeIf { it.isNotEmpty() } ?: listOfNotNull(listing.photoUrl)).size
                     )
+                    AiThoughtLogger.log(
+                        AiThoughtLog(
+                            listingId = listing.id,
+                            title = listing.title,
+                            price = if (listing.price != null) "${listing.price} ${listing.currency ?: "грн"}" else "Договорная",
+                            radarTitle = watch.title,
+                            status = AiStatus.QUEUED,
+                            confidence = null,
+                            reasons = "Анализ превысил 2 минуты (лимит API или много фото). Лот отправлен в очередь ИИ-потока.",
+                            rawJson = "",
+                            error = "Таймаут 2 мин -> Очередь ИИ"
+                        )
+                    )
                     AiQueueManager.enqueue(listing, watch)
                     return AiEvaluation(
                         status = AiStatus.QUEUED,
@@ -133,6 +146,19 @@ class AiFilterEngine(
                     currency = listing.currency ?: "грн",
                     radarTitle = watch.title,
                     photosTotal = (listing.photoUrls.takeIf { it.isNotEmpty() } ?: listOfNotNull(listing.photoUrl)).size
+                )
+                AiThoughtLogger.log(
+                    AiThoughtLog(
+                        listingId = listing.id,
+                        title = listing.title,
+                        price = if (listing.price != null) "${listing.price} ${listing.currency ?: "грн"}" else "Договорная",
+                        radarTitle = watch.title,
+                        status = AiStatus.QUEUED,
+                        confidence = null,
+                        reasons = "Анализ превысил 2 минуты (лимит API или много фото). Лот отправлен в очередь ИИ-потока.",
+                        rawJson = "",
+                        error = "Таймаут 2 мин -> Очередь ИИ"
+                    )
                 )
                 AiQueueManager.enqueue(listing, watch)
                 return AiEvaluation(
@@ -169,7 +195,8 @@ class AiFilterEngine(
                 status = eval.status,
                 confidence = analysisResult.confidence,
                 reasons = reasonsJoined,
-                rawJson = analysisResult.toJsonString()
+                rawJson = analysisResult.toJsonString(),
+                thinking = analysisResult.thinking
             )
         )
         return eval
@@ -215,7 +242,8 @@ class AiFilterEngine(
                 status = eval.status,
                 confidence = analysisResult.confidence,
                 reasons = reasonsJoined,
-                rawJson = analysisResult.toJsonString()
+                rawJson = analysisResult.toJsonString(),
+                thinking = analysisResult.thinking
             )
         )
         return eval
@@ -255,7 +283,7 @@ class AiFilterEngine(
                 val withQuery = rawResult.copy(query = watch.query.trim())
                 evaluateResult(withQuery).copy(result = withQuery)
             },
-            onFailure = { handleAiError(it) }
+            onFailure = { handleAiError(it, listing, watch) }
         )
 
         val updated = finding.copy(
@@ -274,6 +302,24 @@ class AiFilterEngine(
             Log.w(TAG, "Finding update error: ${e.message}")
         }
         if (eval.result != null) {
+            val reasonsJoined = if (eval.result.reasons.isNotEmpty()) {
+                eval.result.reasons.joinToString("\n• ", prefix = "• ")
+            } else {
+                eval.result.rejectReason ?: (if (eval.result.isMatch) "Подходит под условия поиска" else "Не подходит")
+            }
+            AiThoughtLogger.log(
+                AiThoughtLog(
+                    listingId = listing.id,
+                    title = listing.title,
+                    price = if (listing.price != null) "${listing.price} ${listing.currency ?: "грн"}" else "Договорная",
+                    radarTitle = watch.title,
+                    status = eval.status,
+                    confidence = eval.result.confidence,
+                    reasons = reasonsJoined,
+                    rawJson = eval.result.toJsonString(),
+                    thinking = eval.result.thinking
+                )
+            )
             try {
                 aiCacheDao?.insert(AiCacheEntry(listing.id, eval.result.toJsonString()))
             } catch (e: Exception) {

@@ -18,7 +18,8 @@ data class AiAnalysisResult(
     val reasons: List<String>,
     val rejectReason: String?,
     val rawJson: String? = null,
-    val query: String? = null
+    val query: String? = null,
+    val thinking: String? = null
 ) {
     fun toJsonString(): String {
         return JSONObject().apply {
@@ -42,14 +43,22 @@ data class AiAnalysisResult(
             put("reasons", JSONArray(reasons))
             put("reject_reason", rejectReason ?: JSONObject.NULL)
             put("query", query ?: JSONObject.NULL)
+            put("thinking", thinking ?: JSONObject.NULL)
         }.toString()
     }
 
     companion object {
-        fun fromJson(jsonStr: String): AiAnalysisResult? {
+        fun fromJson(jsonStr: String, extractedThinking: String? = null): AiAnalysisResult? {
             if (jsonStr.isBlank()) return null
             return try {
-                // Strip <think>...</think> reasoning blocks if present (Qwen / DeepSeek reasoning models)
+                // Extract <think>...</think> reasoning blocks if present (Qwen / DeepSeek reasoning models)
+                val thinkMatch = Regex("""<think>([\s\S]*?)</think>""", RegexOption.IGNORE_CASE).find(jsonStr)
+                val inlineThinking = thinkMatch?.groupValues?.get(1)?.trim()
+                val combinedThinking = listOfNotNull(
+                    extractedThinking?.takeIf { it.isNotBlank() },
+                    inlineThinking?.takeIf { it.isNotBlank() }
+                ).joinToString("\n\n").takeIf { it.isNotBlank() }
+
                 val cleanStr = jsonStr.replace(Regex("""<think>[\s\S]*?</think>""", RegexOption.IGNORE_CASE), "").trim()
 
                 // Find first '{' and last '}' to handle potential surrounding formatting
@@ -104,6 +113,7 @@ data class AiAnalysisResult(
 
                 val rejectReason = if (obj.isNull("reject_reason")) null else obj.optString("reject_reason").takeIf { it.isNotBlank() }
                 val query = if (obj.isNull("query")) null else obj.optString("query").takeIf { it.isNotBlank() }
+                val thinking = combinedThinking ?: (if (obj.isNull("thinking")) null else obj.optString("thinking").takeIf { it.isNotBlank() })
 
                 AiAnalysisResult(
                     isMatch = isMatch,
@@ -120,7 +130,8 @@ data class AiAnalysisResult(
                     reasons = reasons,
                     rejectReason = rejectReason,
                     rawJson = cleanJson,
-                    query = query
+                    query = query,
+                    thinking = thinking
                 )
             } catch (_: Exception) {
                 null

@@ -498,6 +498,8 @@ class AiFilterEngineTest {
         assertTrue(parsed!!.isMatch)
         assertEquals(93, parsed.confidence)
         assertEquals("Sapphire RX 470", parsed.detectedProduct)
+        assertNotNull("Should capture thinking from <think> tag", parsed.thinking)
+        assertTrue(parsed.thinking!!.contains("The user is searching for RX 470"))
     }
 
     @Test
@@ -603,5 +605,32 @@ class AiFilterEngineTest {
 
         AiRuntime.dequeue(5555L)
         assertFalse(AiRuntime.activity.value.queue.any { it.listingId == 5555L })
+    }
+
+    @Test
+    fun testAiThoughtLogger_serializationAndPersistence() {
+        val entry = AiThoughtLog(
+            listingId = 999L,
+            title = "Test Card",
+            price = "5000 грн",
+            radarTitle = "GPU Radar",
+            status = AiStatus.MATCH,
+            confidence = 90,
+            reasons = "Matches GPU specs",
+            rawJson = "{}",
+            error = null,
+            thinking = "Analyzing GPU cooler and VRAM chips"
+        )
+        val json = entry.toJson()
+        val deserialized = AiThoughtLog.fromJson(json)
+        assertEquals(999L, deserialized.listingId)
+        assertEquals("Test Card", deserialized.title)
+        assertEquals("Analyzing GPU cooler and VRAM chips", deserialized.thinking)
+
+        AiThoughtLogger.clear()
+        assertEquals(0, AiThoughtLogger.logsFlow.value.size)
+        AiThoughtLogger.log(entry)
+        assertEquals(1, AiThoughtLogger.logsFlow.value.size)
+        assertTrue(AiThoughtLogger.asFormattedText().contains("Analyzing GPU cooler and VRAM chips"))
     }
 }

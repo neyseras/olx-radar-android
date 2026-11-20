@@ -1891,7 +1891,7 @@ fun AiThoughtsDialog(
                     color = CyberneticSurfaceContainerLow,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(340.dp)
+                        .height(420.dp)
                 ) {
                     if (logs.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1909,18 +1909,17 @@ fun AiThoughtsDialog(
                         ) {
                             items(logs.size) { idx ->
                                 val log = logs[idx]
+                                val borderTint = when (log.status) {
+                                    AiStatus.REJECTED -> CyberneticError.copy(alpha = 0.4f)
+                                    AiStatus.MATCH -> CyberneticSecondary.copy(alpha = 0.4f)
+                                    AiStatus.NEEDS_REVIEW, AiStatus.QUEUED -> CyberneticTertiary.copy(alpha = 0.4f)
+                                    AiStatus.ERROR -> CyberneticError.copy(alpha = 0.4f)
+                                    else -> CyberneticPrimary.copy(alpha = 0.3f)
+                                }
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = CyberneticSurfaceContainerHigh,
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.dp,
-                                        when (log.status) {
-                                            AiStatus.REJECTED -> CyberneticError.copy(alpha = 0.4f)
-                                            AiStatus.MATCH -> CyberneticSecondary.copy(alpha = 0.4f)
-                                            AiStatus.NEEDS_REVIEW -> CyberneticTertiary.copy(alpha = 0.4f)
-                                            else -> CyberneticOutlineVariant.copy(alpha = 0.2f)
-                                        }
-                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, borderTint),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1929,14 +1928,24 @@ fun AiThoughtsDialog(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
+                                            val statusLabel = when (log.status) {
+                                                AiStatus.REJECTED -> "ОТКЛОНЕНО"
+                                                AiStatus.MATCH -> "ПОДХОДИТ"
+                                                AiStatus.NEEDS_REVIEW -> "НА ПРОВЕРКЕ"
+                                                AiStatus.QUEUED -> "В ОЧЕРЕДИ"
+                                                AiStatus.ERROR -> "ОШИБКА"
+                                                "cached" -> "ИЗ КЭША"
+                                                else -> log.status.uppercase()
+                                            }
+                                            val statusColor = when (log.status) {
+                                                AiStatus.REJECTED, AiStatus.ERROR -> CyberneticError
+                                                AiStatus.MATCH -> CyberneticSecondary
+                                                AiStatus.NEEDS_REVIEW, AiStatus.QUEUED -> CyberneticTertiary
+                                                else -> CyberneticPrimary
+                                            }
                                             Text(
-                                                text = "${log.timeFormatted()} · ${log.status.uppercase()}",
-                                                color = when (log.status) {
-                                                    AiStatus.REJECTED -> CyberneticError
-                                                    AiStatus.MATCH -> CyberneticSecondary
-                                                    AiStatus.NEEDS_REVIEW -> CyberneticTertiary
-                                                    else -> CyberneticPrimary
-                                                },
+                                                text = "${log.timeFormatted()} · $statusLabel",
+                                                color = statusColor,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
@@ -1990,6 +1999,32 @@ fun AiThoughtsDialog(
                                                 fontSize = 10.sp,
                                                 lineHeight = 14.sp
                                             )
+                                        }
+
+                                        if (!log.thinking.isNullOrBlank()) {
+                                            Surface(
+                                                color = CyberneticSurfaceContainerLowest,
+                                                shape = RoundedCornerShape(6.dp),
+                                                modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                                            ) {
+                                                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                    Text(
+                                                        text = "Рассуждения модели (<think>):",
+                                                        color = CyberneticTertiary,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = log.thinking,
+                                                        color = CyberneticOnSurfaceVariant,
+                                                        fontSize = 10.sp,
+                                                        lineHeight = 13.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        maxLines = 8,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }

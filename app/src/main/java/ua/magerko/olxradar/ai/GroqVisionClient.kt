@@ -173,6 +173,10 @@ class GroqVisionClient(
                 val waitMs = max(e.retryAfterMs ?: 12000L, 8000L)
                 rateLimitedUntilMs = max(rateLimitedUntilMs, System.currentTimeMillis() + waitMs)
                 retryDelayMs = waitMs
+                if (waitMs > 60000L) {
+                    // Если лимит суточный или длительный (> 1 мин), не тратим время на повторы в цикле
+                    break
+                }
                 continue
             } catch (e: Exception) {
                 Log.w(TAG, "AI API error on attempt $attempt: ${e.message}")
@@ -491,7 +495,9 @@ ${listing.description.ifBlank { "Описание отсутствует" }}
             val firstChoice = choices.getJSONObject(0)
             val message = firstChoice.optJSONObject("message") ?: return null
             val content = message.optString("content", "")
-            AiAnalysisResult.fromJson(content)
+            val reasoning = message.optString("reasoning", "").takeIf { it.isNotBlank() }
+                ?: message.optString("thought", "").takeIf { it.isNotBlank() }
+            AiAnalysisResult.fromJson(content, reasoning)
         } catch (e: Exception) {
             Log.w(TAG, "Error parsing completion response", e)
             null
@@ -535,13 +541,15 @@ ${listing.description.ifBlank { "Описание отсутствует" }}
                     ""
                 }
                 if (retrySec == null && errBody.isNotBlank()) {
-                    val match = Regex("""try again in ([\d\.]+)s""").find(errBody)
+                    val match = Regex("""try again in (?:(\d+)m)?([\d\.]+)s""").find(errBody)
                     if (match != null) {
-                        retrySec = match.groupValues[1].toDoubleOrNull()?.toLong()
+                        val minutes = match.groupValues[1].toLongOrNull() ?: 0L
+                        val seconds = match.groupValues[2].toDoubleOrNull()?.toLong() ?: 0L
+                        retrySec = minutes * 60 + seconds
                     }
                 }
                 val retryMs = retrySec?.let { it * 1000L }
-                val errorMsg = if (errBody.isNotBlank()) "HTTP 429 Too Many Requests: $errBody" else "HTTP 429 Too Many Requests"
+                val errorMsg = if (errBody.isNotBlank()) "HTTP 429: $errBody" else "HTTP 429 Too Many Requests"
                 throw HttpRateLimitException(errorMsg, retryMs)
             }
 
