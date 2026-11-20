@@ -253,6 +253,7 @@ fun DealInspectorModal(
                             finding.aiStatus == "rejected" -> "Отклонено ИИ" to CyberneticError
                             finding.aiStatus == "error" -> "Ошибка ИИ" to CyberneticTertiary
                             finding.aiStatus == "analyzing" -> "Анализ ИИ..." to CyberneticPrimary
+                            finding.aiStatus == "queued" -> "В очереди ИИ" to CyberneticTertiary
                             finding.aiScore != null -> "ИИ: ${finding.aiScore}%" to CyberneticSecondary
                             else -> "Активно" to CyberneticSecondary
                         }
@@ -579,6 +580,7 @@ fun DealInspectorModal(
                 val isAiRejected = finding.aiStatus == "rejected"
                 val isAiError = finding.aiStatus == "error"
                 val isAiAnalyzing = finding.aiStatus == "analyzing"
+                val isAiQueued = finding.aiStatus == "queued"
 
                 Card(
                     modifier = Modifier
@@ -587,7 +589,7 @@ fun DealInspectorModal(
                             1.dp,
                             when {
                                 isAiRejected -> CyberneticError.copy(alpha = 0.5f)
-                                isAiError -> CyberneticTertiary.copy(alpha = 0.5f)
+                                isAiError || isAiQueued -> CyberneticTertiary.copy(alpha = 0.5f)
                                 hasAiSuccess -> CyberneticSecondary.copy(alpha = 0.4f)
                                 else -> CyberneticOutlineVariant.copy(alpha = 0.35f)
                             },
@@ -618,7 +620,7 @@ fun DealInspectorModal(
                                         .background(
                                             when {
                                                 isAiRejected -> CyberneticError.copy(alpha = 0.15f)
-                                                isAiError -> CyberneticTertiary.copy(alpha = 0.15f)
+                                                isAiError || isAiQueued -> CyberneticTertiary.copy(alpha = 0.15f)
                                                 hasAiSuccess -> CyberneticSecondary.copy(alpha = 0.15f)
                                                 else -> CyberneticPrimary.copy(alpha = 0.15f)
                                             }
@@ -629,13 +631,14 @@ fun DealInspectorModal(
                                         imageVector = when {
                                             isAiRejected -> Icons.Default.Warning
                                             isAiError -> Icons.Default.ErrorOutline
+                                            isAiQueued -> Icons.Default.Schedule
                                             hasAiSuccess -> Icons.Default.AutoAwesome
                                             else -> Icons.Default.FilterList
                                         },
                                         contentDescription = null,
                                         tint = when {
                                             isAiRejected -> CyberneticError
-                                            isAiError -> CyberneticTertiary
+                                            isAiError || isAiQueued -> CyberneticTertiary
                                             hasAiSuccess -> CyberneticSecondary
                                             else -> CyberneticPrimary
                                         },
@@ -648,6 +651,7 @@ fun DealInspectorModal(
                                             isAiRejected -> "Отклонено Groq Vision"
                                             isAiError -> "ИИ-анализ: Ошибка проверки API"
                                             isAiAnalyzing -> "Groq Vision: Анализ лота..."
+                                            isAiQueued -> "Groq Vision: В очереди ИИ"
                                             hasAiSuccess -> "Результат проверки Groq Vision"
                                             else -> "Фильтр радара (Базовый)"
                                         },
@@ -662,6 +666,7 @@ fun DealInspectorModal(
                                             isAiRejected -> "Не соответствует условиям поиска"
                                             isAiError -> "Сбой связи или исчерпан лимит Groq"
                                             isAiAnalyzing -> "ИИ сопоставляет фото и описание..."
+                                            isAiQueued -> "Запрос занял > 2 мин и отложен в очередь"
                                             hasAiSuccess -> "Анализ фото, комплектации и соответствия"
                                             else -> "Проверка по ключевым словам и цене"
                                         },
@@ -1090,6 +1095,68 @@ fun DealInspectorModal(
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text("Повторить ИИ-анализ", fontSize = 13.sp)
+                                    }
+                                }
+                            }
+                        } else if (isAiQueued) {
+                            // Content branch 3.5: AI Queued (> 2 min processing)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(CyberneticTertiary.copy(alpha = 0.12f))
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Schedule,
+                                        contentDescription = null,
+                                        tint = CyberneticTertiary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "Запрос в очереди ИИ-потока",
+                                        color = CyberneticTertiary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    text = "Анализ этого лота занял более 2 минут и был перенесён в фоновую очередь ИИ-потока, чтобы не блокировать поиск. Он будет обработан автоматически.",
+                                    color = CyberneticOnSurface,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Button(
+                                    onClick = onRetryAi,
+                                    enabled = !isRetryingAi,
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = CyberneticPrimary,
+                                        contentColor = CyberneticOnPrimary
+                                    )
+                                ) {
+                                    if (isRetryingAi) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = CyberneticOnPrimary
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Анализируем...", fontSize = 13.sp)
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Проверить сейчас", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }

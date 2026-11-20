@@ -26,6 +26,7 @@ class AiFilterEngine(
 
     companion object {
         private const val TAG = "AiFilterEngine"
+        const val AI_MAX_PROCESSING_TIMEOUT_MS = 120_000L // 2 минуты лимит на синхронный анализ
     }
 
     suspend fun evaluateListing(listing: Listing, watch: Watch): AiEvaluation {
@@ -84,7 +85,29 @@ class AiFilterEngine(
                     reasons = reasonText
                 )
             } else {
-                val fresh = runAnalysis(listing, watch)
+                val fresh = kotlinx.coroutines.withTimeoutOrNull(AI_MAX_PROCESSING_TIMEOUT_MS) {
+                    runAnalysis(listing, watch)
+                }
+                if (fresh == null) {
+                    AppLog.w(TAG, "ИИ-анализ '${listing.title}' занял > 2 минут -> отправка в очередь ИИ-потока")
+                    AiRuntime.markQueued(
+                        listingId = listing.id,
+                        title = listing.title,
+                        url = listing.url,
+                        photoUrl = listing.photoUrl ?: listing.photoUrls.firstOrNull(),
+                        price = listing.price,
+                        currency = listing.currency ?: "грн",
+                        radarTitle = watch.title,
+                        photosTotal = (listing.photoUrls.takeIf { it.isNotEmpty() } ?: listOfNotNull(listing.photoUrl)).size
+                    )
+                    AiQueueManager.enqueue(listing, watch)
+                    return AiEvaluation(
+                        status = AiStatus.QUEUED,
+                        shouldNotify = false,
+                        shouldSaveFinding = true,
+                        result = null
+                    )
+                }
                 if (fresh.isFailure) {
                     return handleAiError(fresh.exceptionOrNull(), listing, watch)
                 }
@@ -96,7 +119,29 @@ class AiFilterEngine(
                 }
             }
         } else {
-            val fresh = runAnalysis(listing, watch)
+            val fresh = kotlinx.coroutines.withTimeoutOrNull(AI_MAX_PROCESSING_TIMEOUT_MS) {
+                runAnalysis(listing, watch)
+            }
+            if (fresh == null) {
+                AppLog.w(TAG, "ИИ-анализ '${listing.title}' занял > 2 минут -> отправка в очередь ИИ-потока")
+                AiRuntime.markQueued(
+                    listingId = listing.id,
+                    title = listing.title,
+                    url = listing.url,
+                    photoUrl = listing.photoUrl ?: listing.photoUrls.firstOrNull(),
+                    price = listing.price,
+                    currency = listing.currency ?: "грн",
+                    radarTitle = watch.title,
+                    photosTotal = (listing.photoUrls.takeIf { it.isNotEmpty() } ?: listOfNotNull(listing.photoUrl)).size
+                )
+                AiQueueManager.enqueue(listing, watch)
+                return AiEvaluation(
+                    status = AiStatus.QUEUED,
+                    shouldNotify = false,
+                    shouldSaveFinding = true,
+                    result = null
+                )
+            }
             if (fresh.isFailure) {
                 return handleAiError(fresh.exceptionOrNull(), listing, watch)
             }
@@ -106,6 +151,52 @@ class AiFilterEngine(
             } catch (e: Exception) {
                 Log.w(TAG, "Cache insert error: ${e.message}")
             }
+        }
+
+        val eval = evaluateResult(analysisResult)
+        val reasonsJoined = if (analysisResult.reasons.isNotEmpty()) {
+            analysisResult.reasons.joinToString("\n• ", prefix = "• ")
+        } else {
+            analysisResult.rejectReason ?: (if (analysisResult.isMatch) "Подходит под условия поиска" else "Не подходит под критерии")
+        }
+        AiRuntime.finish(eval.status, analysisResult.confidence, reasonsJoined)
+        AiThoughtLogger.log(
+            AiThoughtLog(
+                listingId = listing.id,
+                title = listing.title,
+                price = if (listing.price != null) "${listing.price} ${listing.currency ?: "грн"}" else "Договорная",
+                radarTitle = watch.title,
+                status = eval.status,
+                confidence = analysisResult.confidence,
+                reasons = reasonsJoined,
+                rawJson = analysisResult.toJsonString()
+            )
+        )
+        return eval
+    }
+
+    /**
+     * Прямой анализ лота из очереди ИИ-потока без 2-минутного таймаута отсечения.
+     */
+    suspend fun evaluateListingDirect(listing: Listing, watch: Watch): AiEvaluation {
+        if (!aiPreferences.isAiEnabled || aiPreferences.apiKey.isBlank()) {
+            return AiEvaluation(
+                status = AiStatus.SKIPPED,
+                shouldNotify = true,
+                shouldSaveFinding = true,
+                result = null
+            )
+        }
+
+        val fresh = runAnalysis(listing, watch)
+        if (fresh.isFailure) {
+            return handleAiError(fresh.exceptionOrNull(), listing, watch)
+        }
+        val analysisResult = fresh.getOrThrow().copy(query = watch.query.trim())
+        try {
+            aiCacheDao?.insert(AiCacheEntry(listing.id, analysisResult.toJsonString()))
+        } catch (e: Exception) {
+            Log.w(TAG, "Cache insert error in evaluateListingDirect: ${e.message}")
         }
 
         val eval = evaluateResult(analysisResult)

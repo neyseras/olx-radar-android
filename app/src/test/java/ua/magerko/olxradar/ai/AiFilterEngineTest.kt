@@ -562,4 +562,46 @@ class AiFilterEngineTest {
         assertEquals(AiStatus.REJECTED, evalStrict.status)
         assertFalse("In strict mode, rejected items must not be saved", evalStrict.shouldSaveFinding)
     }
+
+    @Test
+    fun testAiQueueManager_enqueueAndStatus() {
+        val listing = Listing(
+            id = 5555L,
+            url = "https://olx.ua/item-5555",
+            title = "Long processing item",
+            description = "Some description",
+            price = 1000,
+            currency = "грн",
+            cityName = "Киев",
+            cityId = null,
+            categoryId = null,
+            isBusiness = false,
+            state = null,
+            photoUrl = null,
+            photoUrls = emptyList(),
+            createdAt = System.currentTimeMillis(),
+            pushedAt = null,
+            refreshedAt = null
+        )
+        val watch = Watch(id = 1L, title = "Test Radar", query = "Long processing")
+
+        AiRuntime.markQueued(
+            listingId = listing.id,
+            title = listing.title,
+            url = listing.url,
+            photoUrl = listing.photoUrl,
+            price = listing.price,
+            currency = listing.currency,
+            radarTitle = watch.title,
+            photosTotal = 0
+        )
+
+        val queue = AiRuntime.activity.value.queue
+        assertTrue(queue.any { it.listingId == 5555L })
+        val item = queue.first { it.listingId == 5555L }
+        assertEquals("QUEUED", item.status)
+
+        AiRuntime.dequeue(5555L)
+        assertFalse(AiRuntime.activity.value.queue.any { it.listingId == 5555L })
+    }
 }

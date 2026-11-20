@@ -220,6 +220,17 @@ fun AiLiveStreamScreen(
                         )
                     }
 
+                    // QUEUED ITEMS SECTION (ОЧЕРЕДЬ ИИ-ПОТОКА)
+                    if (aiActivity.queue.isNotEmpty()) {
+                        item {
+                            QueuedAiItemsSection(
+                                queue = aiActivity.queue,
+                                onOpenUrl = { openUrl(it) },
+                                onCopyUrl = { copyUrl(it) }
+                            )
+                        }
+                    }
+
                     // METRICS STRIP
                     item {
                         Row(
@@ -644,11 +655,13 @@ private fun ProcessedAiItemCard(
     val isRejected = item.status.equals("REJECTED", ignoreCase = true)
     val isCached = item.status.equals("CACHED", ignoreCase = true)
     val isError = item.status.equals("ERROR", ignoreCase = true)
+    val isQueued = item.status.equals("QUEUED", ignoreCase = true)
 
     val statusBadgeColor = when {
         isApproved -> CyberneticSecondary
         isRejected -> CyberneticError
         isCached -> CyberneticPrimary
+        isQueued -> CyberneticTertiary
         isError -> CyberneticError
         else -> CyberneticTertiary
     }
@@ -657,6 +670,7 @@ private fun ProcessedAiItemCard(
         isApproved -> "✓ Подходит ${item.confidence?.let { "$it%" } ?: ""}"
         isRejected -> "✗ Отклонено ${item.confidence?.let { "$it%" } ?: ""}"
         isCached -> "⚡ Из кэша"
+        isQueued -> "⏳ В очереди"
         isError -> "⚠ Ошибка"
         else -> "⚠ На проверку ${item.confidence?.let { "$it%" } ?: ""}"
     }
@@ -910,6 +924,195 @@ private fun MetricSmallCard(
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold
             )
+        }
+    }
+}
+
+@Composable
+private fun QueuedAiItemsSection(
+    queue: List<LiveAiItem>,
+    onOpenUrl: (String) -> Unit,
+    onCopyUrl: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, CyberneticTertiary.copy(alpha = 0.45f), RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = CyberneticSurfaceContainerLow)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        tint = CyberneticTertiary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "ОЧЕРЕДЬ ИИ-ПОТОКА",
+                        color = CyberneticTertiary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = CyberneticTertiary.copy(alpha = 0.16f)
+                ) {
+                    Text(
+                        text = "${queue.size}",
+                        color = CyberneticTertiary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = "Лоты, анализ которых занял более 2 минут, отложены в эту очередь и обрабатываются нейросетью в фоне без задержки поиска.",
+                color = CyberneticOnSurfaceVariant,
+                fontSize = 11.sp,
+                lineHeight = 15.sp
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                queue.forEach { item ->
+                    QueuedItemCard(
+                        item = item,
+                        onOpenUrl = onOpenUrl,
+                        onCopyUrl = onCopyUrl
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QueuedItemCard(
+    item: LiveAiItem,
+    onOpenUrl: (String) -> Unit,
+    onCopyUrl: (String) -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = CyberneticSurfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = CyberneticSurfaceContainerHighest
+                ) {
+                    Text(
+                        text = item.radarTitle ?: "Радар",
+                        color = CyberneticOnSurfaceVariant,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = CyberneticTertiary.copy(alpha = 0.16f)
+                ) {
+                    Text(
+                        text = "⏳ В очереди (> 2 мин)",
+                        color = CyberneticTertiary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (!item.photoUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = item.photoUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(CyberneticSurfaceContainerHighest),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = item.title,
+                        color = CyberneticOnSurface,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (item.price != null && item.price > 0) {
+                        Text(
+                            text = "${item.price} ${item.currency ?: "грн"}",
+                            color = CyberneticSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (item.url.isNotBlank()) {
+                        IconButton(
+                            onClick = { onCopyUrl(item.url) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Копировать ссылку",
+                                tint = CyberneticOnSurfaceVariant,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { onOpenUrl(item.url) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInNew,
+                                contentDescription = "Открыть OLX",
+                                tint = CyberneticPrimary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

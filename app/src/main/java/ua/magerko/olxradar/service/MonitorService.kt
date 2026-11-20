@@ -103,6 +103,12 @@ class MonitorService : Service() {
             imageProcessor = aiImageProcessor,
             aiCacheDao = db.aiCacheDao()
         )
+        ua.magerko.olxradar.ai.AiQueueManager.init(
+            engine = aiFilterEngine,
+            database = db,
+            notificationHelper = notificationHelper,
+            prefs = prefs
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

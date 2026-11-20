@@ -49,6 +49,9 @@ interface FindingDao {
     @Query("SELECT * FROM findings WHERE id = :id")
     suspend fun getFindingById(id: Long): Finding?
 
+    @Query("SELECT * FROM findings WHERE listing_id = :listingId LIMIT 1")
+    suspend fun getFindingByListingId(listingId: Long): Finding?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertFinding(finding: Finding): Long
 

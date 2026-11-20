@@ -197,6 +197,7 @@ class NotificationHelper(private val context: Context) {
             ua.magerko.olxradar.ai.AiStatus.REJECTED -> "[AI ✗] "
             ua.magerko.olxradar.ai.AiStatus.ERROR -> "[AI !] "
             ua.magerko.olxradar.ai.AiStatus.ANALYZING -> "[AI ...] "
+            ua.magerko.olxradar.ai.AiStatus.QUEUED -> "[AI ⏳] "
             else -> ""
         }
 

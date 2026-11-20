@@ -51,6 +51,7 @@ object AiRuntime {
         val startedAtMs: Long = 0L,
         val lastFinished: Finished? = null,
         val currentItem: LiveAiItem? = null,
+        val queue: List<LiveAiItem> = emptyList(),
         val history: List<LiveAiItem> = emptyList(),
         val totalProcessed: Int = 0,
         val approvedCount: Int = 0,
@@ -233,5 +234,59 @@ object AiRuntime {
 
     fun clearHistory() {
         _activity.update { it.copy(history = emptyList()) }
+    }
+
+    fun enqueue(item: LiveAiItem) {
+        _activity.update { cur ->
+            val exists = cur.queue.any { it.listingId == item.listingId }
+            if (exists) cur else cur.copy(queue = cur.queue + item)
+        }
+    }
+
+    fun dequeue(listingId: Long): LiveAiItem? {
+        var removed: LiveAiItem? = null
+        _activity.update { cur ->
+            removed = cur.queue.find { it.listingId == listingId }
+            cur.copy(queue = cur.queue.filterNot { it.listingId == listingId })
+        }
+        return removed
+    }
+
+    fun markQueued(
+        listingId: Long,
+        title: String,
+        url: String = "",
+        photoUrl: String? = null,
+        price: Int? = null,
+        currency: String? = "грн",
+        radarTitle: String? = null,
+        photosTotal: Int = 0,
+        reasons: String = "Анализ превысил 2 мин. Отложено в очередь ИИ"
+    ) {
+        val now = System.currentTimeMillis()
+        val item = LiveAiItem(
+            listingId = listingId,
+            title = title,
+            url = url,
+            photoUrl = photoUrl,
+            price = price,
+            currency = currency,
+            radarTitle = radarTitle,
+            photosTotal = photosTotal,
+            status = "QUEUED",
+            reasons = reasons,
+            startedAtMs = now,
+            finishedAtMs = now
+        )
+        _activity.update { cur ->
+            val isCurrent = cur.currentItem?.listingId == listingId
+            val nextQueue = if (cur.queue.any { it.listingId == listingId }) cur.queue else (cur.queue + item)
+            cur.copy(
+                isBusy = if (isCurrent) false else cur.isBusy,
+                currentItem = if (isCurrent) null else cur.currentItem,
+                queue = nextQueue
+            )
+        }
+        AppLog.i("AiRuntime", "Лот '$title' отправлен в очередь ИИ-потока (лимит 2 мин)")
     }
 }

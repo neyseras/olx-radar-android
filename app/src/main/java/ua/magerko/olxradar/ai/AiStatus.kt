@@ -7,4 +7,5 @@ object AiStatus {
     const val REJECTED = "rejected"
     const val ERROR = "error"
     const val SKIPPED = "skipped"
+    const val QUEUED = "queued"
 }

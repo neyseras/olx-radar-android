@@ -703,8 +703,12 @@ fun FindingCard(
                                 }
                             } else {
                                 Text(
-                                    text = "• Анализ завершён (${finding.aiStatus})",
-                                    color = CyberneticOnSurfaceVariant,
+                                    text = when (finding.aiStatus) {
+                                        "queued" -> "• В очереди ИИ (> 2 мин)"
+                                        "analyzing" -> "• ИИ анализирует лот..."
+                                        else -> "• Анализ завершён (${finding.aiStatus})"
+                                    },
+                                    color = if (finding.aiStatus == "queued") CyberneticTertiary else CyberneticOnSurfaceVariant,
                                     fontSize = 11.sp,
                                     lineHeight = 15.sp,
                                     maxLines = 1,
