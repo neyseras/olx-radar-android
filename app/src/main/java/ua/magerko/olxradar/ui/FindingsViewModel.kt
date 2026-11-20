@@ -1,19 +1,23 @@
 package ua.magerko.olxradar.ui
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import ua.magerko.olxradar.ai.AiFilterEngine
 import ua.magerko.olxradar.data.local.FindingDao
 import ua.magerko.olxradar.data.local.WatchDao
 import ua.magerko.olxradar.data.model.Finding
 import ua.magerko.olxradar.data.model.Watch
+import ua.magerko.olxradar.util.AppLog
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class FindingsViewModel(
     private val findingDao: FindingDao,
-    watchDao: WatchDao
+    watchDao: WatchDao,
+    private val aiFilterEngine: AiFilterEngine
 ) : ViewModel() {
 
     private val selectedWatchId = MutableStateFlow<Long?>(null)
@@ -21,6 +25,26 @@ class FindingsViewModel(
 
     private val isRejectedTab = MutableStateFlow(false)
     val isRejectedTabState: StateFlow<Boolean> = isRejectedTab.asStateFlow()
+    /** ID находок, для которых прямо сейчас выполняется повторный ИИ-анализ. */
+    /** ID находок, для которых прямо сейчас выполняется повторный ИИ-анализ. */
+    private val aiRetryingIdsInternal = MutableStateFlow<Set<Long>>(emptySet())
+    val aiRetryingIds: StateFlow<Set<Long>> = aiRetryingIdsInternal.asStateFlow()
+
+    /** Ручной повторный запуск ИИ-анализа для конкретной находки. */
+    fun retryAiAnalysis(finding: Finding, watch: Watch) {
+        if (aiRetryingIdsInternal.value.contains(finding.id)) return
+        aiRetryingIdsInternal.value = aiRetryingIdsInternal.value + finding.id
+        viewModelScope.launch {
+            try {
+                aiFilterEngine.reanalyzeFinding(finding, watch, findingDao)
+                AppLog.i("FindingsVM", "Повторный ИИ-анализ '${finding.title.take(50)}' завершён")
+            } catch (e: Exception) {
+                AppLog.w("FindingsVM", "Повторный ИИ-анализ не удался", e)
+            } finally {
+                aiRetryingIdsInternal.value = aiRetryingIdsInternal.value - finding.id
+            }
+        }
+    }
 
     val watches: StateFlow<List<Watch>> = watchDao.getAllWatchesFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

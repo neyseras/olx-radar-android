@@ -3,6 +3,8 @@ package ua.magerko.olxradar.ai
 import android.util.Log
 import ua.magerko.olxradar.data.local.AiCacheDao
 import ua.magerko.olxradar.data.local.AiCacheEntry
+import ua.magerko.olxradar.data.local.FindingDao
+import ua.magerko.olxradar.data.model.Finding
 import ua.magerko.olxradar.data.model.Listing
 import ua.magerko.olxradar.data.model.Watch
 import ua.magerko.olxradar.util.AppLog
@@ -40,7 +42,8 @@ class AiFilterEngine(
         try {
             val twoWeeksAgo = System.currentTimeMillis() - 14L * 24 * 60 * 60 * 1000L
             aiCacheDao?.pruneOld(twoWeeksAgo)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Не удалось очистить устаревший ИИ-кэш", e)
         }
 
         // 1. Check AI cache to avoid re-analyzing the same listing
@@ -95,6 +98,65 @@ class AiFilterEngine(
         }
 
         return evaluateResult(analysisResult)
+    }
+    /**
+     * Повторный ИИ-анализ уже сохранённой находки: сбрасывает кэш по listing_id,
+     * запускает свежий анализ и обновляет ИИ-поля находки в БД.
+     */
+    suspend fun reanalyzeFinding(finding: Finding, watch: Watch, findingDao: FindingDao): AiEvaluation {
+        val listing = Listing(
+            id = finding.listingId,
+            url = finding.url,
+            title = finding.title,
+            description = finding.description,
+            price = finding.price,
+            currency = finding.currency,
+            cityName = finding.cityName,
+            cityId = null,
+            categoryId = null,
+            isBusiness = false,
+            state = null,
+            photoUrl = finding.photoUrl,
+            photoUrls = emptyList(),
+            createdAt = finding.createdAt,
+            pushedAt = null,
+            refreshedAt = null
+        )
+        try {
+            aiCacheDao?.deleteByListingId(listing.id)
+        } catch (e: Exception) {
+            Log.w(TAG, "Cache delete error on reanalysis: ${e.message}")
+        }
+
+        val fresh = runAnalysis(listing, watch)
+        val eval = fresh.fold(
+            onSuccess = { evaluateResult(it) },
+            onFailure = { handleAiError(it) }
+        )
+
+        val updated = finding.copy(
+            aiScore = eval.result?.confidence,
+            aiStatus = eval.status,
+            aiProduct = eval.result?.detectedProduct,
+            aiModel = eval.result?.detectedModel,
+            aiPhotoMatch = eval.result?.photoMatchesTitle,
+            aiReasons = eval.result?.reasons?.joinToString("\n• ", prefix = "• "),
+            aiRejectReason = eval.result?.rejectReason,
+            aiDetailsJson = eval.result?.toJsonString()
+        )
+        try {
+            findingDao.updateFinding(updated)
+        } catch (e: Exception) {
+            Log.w(TAG, "Finding update error: ${e.message}")
+        }
+        if (eval.result != null) {
+            try {
+                aiCacheDao?.insert(AiCacheEntry(listing.id, eval.result.toJsonString()))
+            } catch (e: Exception) {
+                Log.w(TAG, "Cache insert error on reanalysis: ${e.message}")
+            }
+        }
+        return eval
     }
 
     private suspend fun runAnalysis(listing: Listing, watch: Watch): Result<AiAnalysisResult> {

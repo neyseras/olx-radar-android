@@ -22,6 +22,9 @@ interface AiCacheDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entry: AiCacheEntry)
 
+    @Query("DELETE FROM ai_cache WHERE listing_id = :listingId")
+    suspend fun deleteByListingId(listingId: Long)
+
     @Query("DELETE FROM ai_cache WHERE created_at < :olderThan")
     suspend fun pruneOld(olderThan: Long)
 

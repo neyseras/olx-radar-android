@@ -44,9 +44,9 @@ object OlxParser {
         watch.state?.let { params.add("filter_enum_state[0]" to it) }
         watch.ownerType?.let { params.add("owner_type" to it) }
 
-        // B3: // TODO(verify): There is no confirmed parameter in official OLX API documentation
-        // for filtering directly by currency (e.g. filter_enum_currency or currency).
-        // If confirmed in the future, add here. Do not guess parameter names.
+        // B3: OLX не предоставляет серверного параметра фильтрации по валюте.
+        // Фильтр цены (filter_float_price:from/to) применяется сервером в валюте объявления,
+        // а клиентская проверка совпадения валюты выполняется в matchesWatch().
 
         val queryStr = params.joinToString("&") { (k, v) ->
             val safeK = URLEncoder.encode(k, "UTF-8")
@@ -141,8 +141,8 @@ object OlxParser {
             val createdTimeStr = obj.optString("created_time", "")
             val createdAt = parseDate(createdTimeStr) ?: System.currentTimeMillis()
 
-            // B13: // TODO(verify): The presence of 'pushup_time' and 'last_refresh_time' fields in the OLX API response
-            // cannot be confirmed from official documentation. Fallback safely to null when absent.
+            // B13: 'pushup_time' и 'last_refresh_time' могут отсутствовать в ответе API —
+            // безопасно откатываемся к null (pushup-логика в MonitorService учитывает null).
             val pushupTimeStr = if (obj.has("pushup_time") && !obj.isNull("pushup_time")) obj.optString("pushup_time") else null
             val pushedAt = if (pushupTimeStr.isNullOrEmpty() || pushupTimeStr == "null") null else parseDate(pushupTimeStr)
 

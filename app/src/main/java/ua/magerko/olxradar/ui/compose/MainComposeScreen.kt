@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,14 +16,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
 import ua.magerko.olxradar.data.model.Finding
 import ua.magerko.olxradar.ui.FindingsViewModel
 import ua.magerko.olxradar.ui.StatusViewModel
@@ -61,10 +61,9 @@ fun MainComposeScreen(
 
     val context = LocalContext.current
     val density = LocalDensity.current
-    val glassFxEnabled = remember(isGlassTheme) { ThemePreferences.isGlassEffectsEnabled(context) }
-    val useGlass = glassAvailable(isGlassTheme) && glassFxEnabled
-    val glassBarHeight = with(density) { 68.dp.toPx() }
-    val glassLens = with(density) { 14.dp.toPx() }
+    // Стекло больше не использует библиотеку backdrop (нативные краши на Android 15):
+    // «Liquid Glass» — безопасная имитация: полупрозрачные панели + светлая кромка.
+    val useGlass = isGlassTheme
 
     fun selectTab(tab: NavigationTab) {
         currentTab = tab
@@ -84,18 +83,11 @@ fun MainComposeScreen(
                 )
             )
     ) {
-        // Живой фон для настоящего Liquid Glass (шейдеры преломления из библиотеки Backdrop)
-        val backdrop = if (useGlass) rememberGlassBackdrop(CyberneticBackgroundGradientTop) else null
-        val contentModifier: Modifier = backdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier
-
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            // Планшеты (ширина от 840dp): боковая навигация + двухколоночные списки
             val isTablet = maxWidth >= 840.dp
-
             Row(modifier = Modifier.fillMaxSize()) {
-                if (isTablet && backdrop != null) {
+                if (isTablet && useGlass) {
                     GlassNavRail(
-                        backdrop = backdrop,
                         currentTab = currentTab,
                         unreadCount = unreadCount,
                         aiIsBusy = aiActivity.isBusy,
@@ -128,7 +120,7 @@ fun MainComposeScreen(
                 }
 
                 Box(
-                    modifier = contentModifier
+                    modifier = Modifier
                         .fillMaxSize()
                         .weight(1f)
                 ) {
@@ -218,18 +210,33 @@ fun MainComposeScreen(
             // Нижняя навигация: стеклянная в теме Liquid Glass, обычная в остальных
             if (isTablet) {
                 // На планшете навигация сбоку — нижняя панель не нужна
-            } else if (backdrop != null) {
+            } else if (useGlass) {
+                // Стеклянная нижняя панель (без библиотеки): полупрозрачный
+                // вертикальный градиент + светлая кромка, ноль шейдеров.
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                         .fillMaxWidth()
                         .height(64.dp)
-                        .glassEffect(
-                            backdrop = backdrop,
-                            shape = RoundedCornerShape(32.dp),
-                            blurPx = with(density) { 8.dp.toPx() },
-                            lensPx = glassLens
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    CyberneticSurfaceContainerHigh.copy(alpha = 0.74f),
+                                    CyberneticSurfaceContainer.copy(alpha = 0.60f)
+                                )
+                            )
+                        )
+                        .border(
+                            1.dp,
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.White.copy(alpha = 0.45f),
+                                    Color.White.copy(alpha = 0.08f)
+                                )
+                            ),
+                            RoundedCornerShape(32.dp)
                         )
                 ) {
                     Row(
@@ -259,12 +266,22 @@ fun MainComposeScreen(
                                         Badge(containerColor = CyberneticPrimary) {}
                                     }
                                 }) {
-                                    Icon(
-                                        imageVector = tab.icon,
-                                        contentDescription = tab.title,
-                                        tint = if (isSelected) CyberneticPrimary else CyberneticOnSurfaceVariant,
-                                        modifier = Modifier.size(22.dp)
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(18.dp))
+                                            .background(
+                                                if (isSelected) CyberneticPrimary.copy(alpha = 0.16f)
+                                                else Color.Transparent
+                                            )
+                                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = tab.icon,
+                                            contentDescription = tab.title,
+                                            tint = if (isSelected) CyberneticPrimary else CyberneticOnSurfaceVariant,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
                                 }
                                 Text(
                                     text = tab.title,
@@ -352,7 +369,18 @@ fun MainComposeScreen(
                             }
                             context.startActivity(intent)
                         } catch (e: Exception) {
-                            // fallback
+                            android.widget.Toast.makeText(
+                                context,
+                                "Не удалось открыть ссылку",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                            ua.magerko.olxradar.util.AppLog.w("MainScreen", "Не удалось открыть ссылку: $url", e)
+                        }
+                    },
+                    isRetryingAi = finding.id in findingsViewModel.aiRetryingIds.collectAsState().value,
+                    onRetryAi = {
+                        watches.find { it.id == finding.watchId }?.let { watch ->
+                            findingsViewModel.retryAiAnalysis(finding, watch)
                         }
                     }
                 )
@@ -364,23 +392,34 @@ fun MainComposeScreen(
 /** Стеклянная боковая навигация для планшетов в теме Liquid Glass. */
 @Composable
 private fun GlassNavRail(
-    backdrop: LayerBackdrop,
     currentTab: NavigationTab,
     unreadCount: Int,
     aiIsBusy: Boolean,
     onSelect: (NavigationTab) -> Unit
 ) {
-    val density = LocalDensity.current
     Box(
         modifier = Modifier
             .fillMaxHeight()
             .width(84.dp)
             .padding(8.dp)
-            .glassEffect(
-                backdrop = backdrop,
-                shape = RoundedCornerShape(28.dp),
-                blurPx = with(density) { 8.dp.toPx() },
-                lensPx = with(density) { 12.dp.toPx() }
+            .clip(RoundedCornerShape(28.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        CyberneticSurfaceContainerHigh.copy(alpha = 0.74f),
+                        CyberneticSurfaceContainer.copy(alpha = 0.60f)
+                    )
+                )
+            )
+            .border(
+                1.dp,
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.45f),
+                        Color.White.copy(alpha = 0.08f)
+                    )
+                ),
+                RoundedCornerShape(28.dp)
             )
     ) {
         Column(

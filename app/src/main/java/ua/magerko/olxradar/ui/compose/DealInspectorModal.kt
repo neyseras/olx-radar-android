@@ -51,7 +51,9 @@ fun DealInspectorModal(
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     onDismiss: () -> Unit,
     onDelete: () -> Unit = {},
-    onOpenUrl: (String) -> Unit = {}
+    onOpenUrl: (String) -> Unit = {},
+    onRetryAi: () -> Unit = {},
+    isRetryingAi: Boolean = false
 ) {
     val context = LocalContext.current
     var isDescExpanded by remember { mutableStateOf(false) }
@@ -1001,6 +1003,33 @@ fun DealInspectorModal(
                                     fontSize = 12.sp,
                                     lineHeight = 16.sp
                                 )
+                                Button(
+                                    onClick = onRetryAi,
+                                    enabled = !isRetryingAi,
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = CyberneticPrimary,
+                                        contentColor = CyberneticOnPrimary
+                                    )
+                                ) {
+                                    if (isRetryingAi) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = CyberneticOnPrimary
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Анализируем...", fontSize = 13.sp)
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Повторить ИИ-анализ", fontSize = 13.sp)
+                                    }
+                                }
                             }
                         } else {
                             // Content branch 4: Baseline Radar Match (AI skipped or not run)

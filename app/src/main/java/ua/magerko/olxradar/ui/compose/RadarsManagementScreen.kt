@@ -113,7 +113,7 @@ fun RadarsManagementScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberneticSurface)
+            .background(if (isGlassTheme) Color.Transparent else CyberneticSurface)
     ) {
         Column(
             modifier = Modifier.fillMaxSize()

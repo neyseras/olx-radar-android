@@ -125,7 +125,7 @@ fun StatusAiSettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberneticSurface)
+            .background(if (isGlassTheme) Color.Transparent else CyberneticSurface)
     ) {
         // TOP HEADER
         Row(
@@ -195,6 +195,9 @@ fun StatusAiSettingsScreen(
                             onClick = {
                                 selectedThemeMode = mode
                                 ThemePreferences.set(context, mode)
+                                // Полное пересоздание активити: смена темы со стеклом
+                                // «на живую» роняет слой backdrop (issue #60)
+                                (context as? Activity)?.recreate()
                             },
                             shape = RoundedCornerShape(12.dp),
                             color = if (selectedThemeMode == mode)
@@ -242,40 +245,6 @@ fun StatusAiSettingsScreen(
                         }
                     }
 
-                    // Тумблер эффектов стекла (производительность)
-                    var glassFxOn by remember { mutableStateOf(ThemePreferences.isGlassEffectsEnabled(context)) }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Эффекты Liquid Glass",
-                                color = CyberneticOnSurface,
-                                fontSize = 14.sp
-                            )
-                            Text(
-                                text = if (glassFxOn) "Включены — красиво, но тяжелее" else "Отключены — быстрее и экономнее",
-                                color = CyberneticOnSurfaceVariant,
-                                fontSize = 11.sp
-                            )
-                        }
-                        Switch(
-                            checked = glassFxOn,
-                            onCheckedChange = { on ->
-                                glassFxOn = on
-                                ThemePreferences.setGlassEffectsEnabled(context, on)
-                                Toast.makeText(
-                                    context,
-                                    if (on) "Эффекты включены" else "Эффекты отключены",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                (context as? Activity)?.recreate()
-                            }
-                        )
-                    }
                 }
             }
 

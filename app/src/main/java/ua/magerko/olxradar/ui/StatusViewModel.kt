@@ -13,6 +13,7 @@ import ua.magerko.olxradar.data.model.Watch
 import ua.magerko.olxradar.service.MonitorService
 import ua.magerko.olxradar.service.RadarState
 import ua.magerko.olxradar.service.ServiceStatus
+import ua.magerko.olxradar.util.AppLog
 
 class StatusViewModel(
     application: Application,
@@ -163,7 +164,8 @@ class StatusViewModel(
             findingDao.clearAllFindings()
             try {
                 ua.magerko.olxradar.data.local.AppDatabase.getInstance(getApplication()).aiCacheDao().clear()
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                AppLog.w("StatusVM", "Не удалось очистить ИИ-кэш при удалении находок", e)
             }
         }
     }

@@ -16,8 +16,8 @@ android {
         applicationId = "ua.magerko.olxradar"
         minSdk = 24
         targetSdk = 34
-        versionCode = 261119066   // схема нумерации версий (ГГММДД + счетчик).
-        versionName = "261119066" // схема нумерации версий (ГГММДД + счетчик).
+        versionCode = 261120074   // схема нумерации версий (ГГММДД + счетчик).
+        versionName = "261120074" // схема нумерации версий (ГГММДД + счетчик).
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -100,7 +100,7 @@ dependencies {
     implementation("com.github.bumptech.glide:glide:4.16.0")
 
     // Compose
-    val composeBom = platform("androidx.compose:compose-bom:2025.09.00")
+    val composeBom = platform("androidx.compose:compose-bom:2025.12.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
     implementation("androidx.compose.ui:ui")
@@ -114,7 +114,7 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
 
     // Liquid Glass (Kyant0/AndroidLiquidGlass, готовые AGSL-шейдеры)
-    implementation("io.github.kyant0:backdrop:1.0.0")
+    implementation("io.github.kyant0:backdrop:1.0.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Room

@@ -68,4 +68,7 @@ interface FindingDao {
 
     @Query("DELETE FROM findings WHERE watch_id = :watchId")
     suspend fun deleteByWatchId(watchId: Long)
+
+    @Update
+    suspend fun updateFinding(finding: Finding)
 }

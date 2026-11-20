@@ -3,6 +3,7 @@ package ua.magerko.olxradar.ui.compose
 import android.content.Intent
 import android.net.Uri
 import android.text.format.DateUtils
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,7 +58,7 @@ fun FindingsFeedScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberneticSurface)
+            .background(if (isGlassTheme) Color.Transparent else CyberneticSurface)
     ) {
         // TOP HEADER
         Row(
@@ -333,7 +334,8 @@ fun FindingsFeedScreen(
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                         context.startActivity(intent)
                     } catch (e: Exception) {
-                        // fallback
+                        Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
+                        ua.magerko.olxradar.util.AppLog.w("FindingsScreen", "Не удалось открыть ссылку: $url", e)
                     }
                 }
             )
