@@ -13,16 +13,16 @@ data class WatchFindingsCount(
 @Dao
 interface FindingDao {
 
-    @Query("SELECT watch_id, price FROM findings WHERE price IS NOT NULL AND price > 0 AND (ai_status != 'rejected' OR ai_status IS NULL)")
+    @Query("SELECT watch_id, price FROM findings WHERE price IS NOT NULL AND price > 0 AND ((ai_status != 'rejected' AND ai_status != 'queued') OR ai_status IS NULL)")
     fun getAllValidPricesFlow(): Flow<List<WatchPrice>>
 
-    @Query("SELECT price FROM findings WHERE watch_id = :watchId AND price IS NOT NULL AND price > 0 AND (ai_status != 'rejected' OR ai_status IS NULL)")
+    @Query("SELECT price FROM findings WHERE watch_id = :watchId AND price IS NOT NULL AND price > 0 AND ((ai_status != 'rejected' AND ai_status != 'queued') OR ai_status IS NULL)")
     fun getPricesForWatchFlow(watchId: Long): Flow<List<Int>>
 
-    @Query("SELECT watch_id, COUNT(*) as count FROM findings WHERE ai_status != 'rejected' OR ai_status IS NULL GROUP BY watch_id")
+    @Query("SELECT watch_id, COUNT(*) as count FROM findings WHERE (ai_status != 'rejected' AND ai_status != 'queued') OR ai_status IS NULL GROUP BY watch_id")
     fun getFindingsCountsFlow(): Flow<List<WatchFindingsCount>>
 
-    @Query("SELECT COUNT(*) FROM findings WHERE ai_status != 'rejected' OR ai_status IS NULL")
+    @Query("SELECT COUNT(*) FROM findings WHERE (ai_status != 'rejected' AND ai_status != 'queued') OR ai_status IS NULL")
     fun getActiveFindingsCountFlow(): Flow<Int>
 
     @Query("SELECT * FROM findings ORDER BY found_at DESC LIMIT :limit")
@@ -31,10 +31,10 @@ interface FindingDao {
     @Query("SELECT * FROM findings WHERE watch_id = :watchId ORDER BY found_at DESC LIMIT :limit")
     fun getFindingsByWatchFlow(watchId: Long, limit: Int = 100): Flow<List<Finding>>
 
-    @Query("SELECT * FROM findings WHERE ai_status != 'rejected' OR ai_status IS NULL ORDER BY found_at DESC LIMIT :limit")
+    @Query("SELECT * FROM findings WHERE (ai_status != 'rejected' AND ai_status != 'queued') OR ai_status IS NULL ORDER BY found_at DESC LIMIT :limit")
     fun getActiveFindingsFlow(limit: Int = 100): Flow<List<Finding>>
 
-    @Query("SELECT * FROM findings WHERE (ai_status != 'rejected' OR ai_status IS NULL) AND watch_id = :watchId ORDER BY found_at DESC LIMIT :limit")
+    @Query("SELECT * FROM findings WHERE ((ai_status != 'rejected' AND ai_status != 'queued') OR ai_status IS NULL) AND watch_id = :watchId ORDER BY found_at DESC LIMIT :limit")
     fun getActiveFindingsByWatchFlow(watchId: Long, limit: Int = 100): Flow<List<Finding>>
 
     @Query("SELECT * FROM findings WHERE ai_status = 'rejected' ORDER BY found_at DESC LIMIT :limit")
@@ -42,6 +42,15 @@ interface FindingDao {
 
     @Query("SELECT * FROM findings WHERE ai_status = 'rejected' AND watch_id = :watchId ORDER BY found_at DESC LIMIT :limit")
     fun getRejectedFindingsByWatchFlow(watchId: Long, limit: Int = 100): Flow<List<Finding>>
+
+    @Query("SELECT * FROM findings WHERE ai_status = 'queued' ORDER BY found_at DESC LIMIT :limit")
+    fun getQueuedFindingsFlow(limit: Int = 100): Flow<List<Finding>>
+
+    @Query("SELECT * FROM findings WHERE ai_status = 'queued' AND watch_id = :watchId ORDER BY found_at DESC LIMIT :limit")
+    fun getQueuedFindingsByWatchFlow(watchId: Long, limit: Int = 100): Flow<List<Finding>>
+
+    @Query("SELECT COUNT(*) FROM findings WHERE ai_status = 'queued'")
+    fun getQueuedFindingsCountFlow(): Flow<Int>
 
     @Query("SELECT * FROM findings ORDER BY found_at DESC LIMIT :limit")
     suspend fun getAllFindings(limit: Int = 100): List<Finding>
@@ -64,16 +73,19 @@ interface FindingDao {
     @Query("DELETE FROM findings WHERE ai_status = 'rejected'")
     suspend fun clearRejectedFindings()
 
+    @Query("DELETE FROM findings WHERE ai_status = 'queued'")
+    suspend fun clearQueuedFindings()
+
     @Query("UPDATE findings SET is_read = :isRead WHERE id = :id")
     suspend fun markAsRead(id: Long, isRead: Boolean = true)
 
-    @Query("SELECT COUNT(*) FROM findings WHERE is_read = 0 AND (ai_status != 'rejected' OR ai_status IS NULL)")
+    @Query("SELECT COUNT(*) FROM findings WHERE is_read = 0 AND ((ai_status != 'rejected' AND ai_status != 'queued') OR ai_status IS NULL)")
     fun getUnreadCountFlow(): Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM findings WHERE watch_id = :watchId AND (ai_status != 'rejected' OR ai_status IS NULL)")
+    @Query("SELECT COUNT(*) FROM findings WHERE watch_id = :watchId AND ((ai_status != 'rejected' AND ai_status != 'queued') OR ai_status IS NULL)")
     fun getFindingsCountByWatchFlow(watchId: Long): Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM findings WHERE watch_id = :watchId AND (ai_status != 'rejected' OR ai_status IS NULL)")
+    @Query("SELECT COUNT(*) FROM findings WHERE watch_id = :watchId AND ((ai_status != 'rejected' AND ai_status != 'queued') OR ai_status IS NULL)")
     suspend fun getFindingsCountByWatch(watchId: Long): Int
 
     @Query("DELETE FROM findings WHERE watch_id = :watchId")

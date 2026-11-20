@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import ua.magerko.olxradar.data.model.Finding
 import ua.magerko.olxradar.data.model.Watch
+import ua.magerko.olxradar.ui.FindingsFeedTab
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -45,16 +46,32 @@ fun FindingsFeedScreen(
     rejectedFindings: List<Finding>,
     watches: List<Watch>,
     selectedWatchId: Long?,
-    isRejectedTab: Boolean,
-    onSelectTab: (Boolean) -> Unit,
+    isRejectedTab: Boolean = false,
+    onSelectTab: ((Boolean) -> Unit)? = null,
     onFilterByWatch: (Long?) -> Unit,
     onFindingClick: (Finding) -> Unit,
     onDeleteFinding: (Finding) -> Unit,
     onNavigateToSettings: () -> Unit,
-    marketPricesByWatch: Map<Long, Int> = emptyMap()
+    marketPricesByWatch: Map<Long, Int> = emptyMap(),
+    queuedFindings: List<Finding> = emptyList(),
+    currentFeedTab: FindingsFeedTab = if (isRejectedTab) FindingsFeedTab.REJECTED else FindingsFeedTab.MATCHES,
+    onSelectFeedTab: ((FindingsFeedTab) -> Unit)? = null
 ) {
     val context = LocalContext.current
-    val currentList = if (isRejectedTab) rejectedFindings else findings
+    val effectiveTab = currentFeedTab
+    val currentList = when (effectiveTab) {
+        FindingsFeedTab.MATCHES -> findings
+        FindingsFeedTab.QUEUED -> queuedFindings
+        FindingsFeedTab.REJECTED -> rejectedFindings
+    }
+
+    val selectTabHandler: (FindingsFeedTab) -> Unit = { tab ->
+        if (onSelectFeedTab != null) {
+            onSelectFeedTab(tab)
+        } else {
+            onSelectTab?.invoke(tab == FindingsFeedTab.REJECTED)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -108,8 +125,16 @@ fun FindingsFeedScreen(
                         )
                     }
                     Text(
-                        text = "Фоновый поиск активен · ${currentList.size} найдено",
-                        color = CyberneticSecondary,
+                        text = when (effectiveTab) {
+                            FindingsFeedTab.MATCHES -> "Фоновый поиск активен · ${findings.size} найдено"
+                            FindingsFeedTab.QUEUED -> "Очередь ИИ-потока · ${queuedFindings.size} в обработке"
+                            FindingsFeedTab.REJECTED -> "Отклонено ИИ · ${rejectedFindings.size} отфильтровано"
+                        },
+                        color = when (effectiveTab) {
+                            FindingsFeedTab.MATCHES -> CyberneticSecondary
+                            FindingsFeedTab.QUEUED -> CyberneticTertiary
+                            FindingsFeedTab.REJECTED -> CyberneticOutline
+                        },
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -131,7 +156,7 @@ fun FindingsFeedScreen(
             }
         }
 
-        // SEGMENTED TAB SELECTOR: "Подходящие" vs "Отфильтрованные"
+        // SEGMENTED TAB SELECTOR: "Подходящие" | "В очереди" | "Отклонённые"
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -140,38 +165,89 @@ fun FindingsFeedScreen(
                 .background(CyberneticSurfaceContainerLowest)
                 .padding(4.dp)
         ) {
-            Row(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 // Tab: Matches
+                val isMatches = effectiveTab == FindingsFeedTab.MATCHES
                 Surface(
-                    onClick = { onSelectTab(false) },
+                    onClick = { selectTabHandler(FindingsFeedTab.MATCHES) },
                     modifier = Modifier
                         .weight(1f)
                         .height(38.dp),
                     shape = RoundedCornerShape(8.dp),
-                    color = if (!isRejectedTab) CyberneticSurfaceContainerHigh else Color.Transparent
+                    color = if (isMatches) CyberneticSurfaceContainerHigh else Color.Transparent
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 4.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = "Подходящие",
-                            color = if (!isRejectedTab) CyberneticPrimary else CyberneticOnSurfaceVariant,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
+                            color = if (isMatches) CyberneticPrimary else CyberneticOnSurfaceVariant,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(if (!isRejectedTab) CyberneticPrimary.copy(alpha = 0.2f) else CyberneticSurfaceContainerHighest)
-                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                                .background(if (isMatches) CyberneticPrimary.copy(alpha = 0.2f) else CyberneticSurfaceContainerHighest)
+                                .padding(horizontal = 6.dp, vertical = 1.dp)
                         ) {
                             Text(
                                 text = "${findings.size}",
-                                color = if (!isRejectedTab) CyberneticPrimary else CyberneticOnSurfaceVariant,
-                                fontSize = 11.sp,
+                                color = if (isMatches) CyberneticPrimary else CyberneticOnSurfaceVariant,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                // Tab: Queued
+                val isQueued = effectiveTab == FindingsFeedTab.QUEUED
+                Surface(
+                    onClick = { selectTabHandler(FindingsFeedTab.QUEUED) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isQueued) CyberneticSurfaceContainerHigh else Color.Transparent
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "В очереди",
+                            color = if (isQueued) CyberneticTertiary else CyberneticOnSurfaceVariant,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(if (isQueued) CyberneticTertiary.copy(alpha = 0.2f) else CyberneticSurfaceContainerHighest)
+                                .padding(horizontal = 6.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "${queuedFindings.size}",
+                                color = if (isQueued) CyberneticTertiary else CyberneticOnSurfaceVariant,
+                                fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold
                             )
@@ -180,36 +256,41 @@ fun FindingsFeedScreen(
                 }
 
                 // Tab: Filtered / Rejected
+                val isRejected = effectiveTab == FindingsFeedTab.REJECTED
                 Surface(
-                    onClick = { onSelectTab(true) },
+                    onClick = { selectTabHandler(FindingsFeedTab.REJECTED) },
                     modifier = Modifier
                         .weight(1f)
                         .height(38.dp),
                     shape = RoundedCornerShape(8.dp),
-                    color = if (isRejectedTab) CyberneticSurfaceContainerHigh else Color.Transparent
+                    color = if (isRejected) CyberneticSurfaceContainerHigh else Color.Transparent
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 4.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Отфильтрованные",
-                            color = if (isRejectedTab) CyberneticPrimary else CyberneticOnSurfaceVariant,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
+                            text = "Отклонённые",
+                            color = if (isRejected) CyberneticPrimary else CyberneticOnSurfaceVariant,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(if (isRejectedTab) CyberneticPrimary.copy(alpha = 0.2f) else CyberneticSurfaceContainerHighest)
-                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                                .background(if (isRejected) CyberneticPrimary.copy(alpha = 0.2f) else CyberneticSurfaceContainerHighest)
+                                .padding(horizontal = 6.dp, vertical = 1.dp)
                         ) {
                             Text(
                                 text = "${rejectedFindings.size}",
-                                color = if (isRejectedTab) CyberneticPrimary else CyberneticOnSurfaceVariant,
-                                fontSize = 11.sp,
+                                color = if (isRejected) CyberneticPrimary else CyberneticOnSurfaceVariant,
+                                fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold
                             )
@@ -302,26 +383,46 @@ fun FindingsFeedScreen(
                     modifier = Modifier.padding(horizontal = 24.dp)
                 ) {
                     Icon(
-                        imageVector = if (isRejectedTab) Icons.Default.FilterAltOff else Icons.Default.Radar,
+                        imageVector = when (effectiveTab) {
+                            FindingsFeedTab.MATCHES -> Icons.Default.Radar
+                            FindingsFeedTab.QUEUED -> Icons.Default.Schedule
+                            FindingsFeedTab.REJECTED -> Icons.Default.FilterAltOff
+                        },
                         contentDescription = null,
-                        tint = CyberneticOutline,
+                        tint = when (effectiveTab) {
+                            FindingsFeedTab.QUEUED -> CyberneticTertiary
+                            else -> CyberneticOutline
+                        },
                         modifier = Modifier.size(48.dp)
                     )
                     Text(
-                        text = when {
-                            isRejectedTab && selectedWatch != null -> "Нет отклоненных для «${selectedWatch.title}»"
-                            isRejectedTab -> "Нет отклоненных объявлений"
-                            selectedWatch != null -> "Для «${selectedWatch.title}» пока нет находок"
-                            else -> "Пока нет новых находок"
+                        text = when (effectiveTab) {
+                            FindingsFeedTab.MATCHES -> {
+                                if (selectedWatch != null) "Для «${selectedWatch.title}» пока нет находок"
+                                else "Пока нет новых находок"
+                            }
+                            FindingsFeedTab.QUEUED -> {
+                                if (selectedWatch != null) "Нет лотов в очереди для «${selectedWatch.title}»"
+                                else "Очередь ИИ пуста"
+                            }
+                            FindingsFeedTab.REJECTED -> {
+                                if (selectedWatch != null) "Нет отклоненных для «${selectedWatch.title}»"
+                                else "Нет отклоненных объявлений"
+                            }
                         },
                         color = CyberneticOnSurfaceVariant,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = "Радар продолжает сканирование в фоновом режиме",
+                        text = when (effectiveTab) {
+                            FindingsFeedTab.MATCHES -> "Радар продолжает сканирование в фоновом режиме"
+                            FindingsFeedTab.QUEUED -> "Лоты, анализ которых занял > 2 минут, ожидают фоновой обработки"
+                            FindingsFeedTab.REJECTED -> "Здесь сохраняются объявления, не прошедшие проверку ИИ"
+                        },
                         color = CyberneticOutline,
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                 }
             }

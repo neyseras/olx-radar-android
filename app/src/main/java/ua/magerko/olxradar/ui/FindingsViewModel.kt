@@ -13,6 +13,12 @@ import ua.magerko.olxradar.data.model.Finding
 import ua.magerko.olxradar.data.model.Watch
 import ua.magerko.olxradar.util.AppLog
 
+enum class FindingsFeedTab {
+    MATCHES,
+    QUEUED,
+    REJECTED
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class FindingsViewModel(
     private val findingDao: FindingDao,
@@ -22,6 +28,9 @@ class FindingsViewModel(
 
     private val selectedWatchId = MutableStateFlow<Long?>(null)
     val selectedWatchIdState: StateFlow<Long?> = selectedWatchId.asStateFlow()
+
+    private val selectedFeedTab = MutableStateFlow(FindingsFeedTab.MATCHES)
+    val selectedFeedTabState: StateFlow<FindingsFeedTab> = selectedFeedTab.asStateFlow()
 
     private val isRejectedTab = MutableStateFlow(false)
     val isRejectedTabState: StateFlow<Boolean> = isRejectedTab.asStateFlow()
@@ -70,16 +79,29 @@ class FindingsViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val queuedFindings: StateFlow<List<Finding>> = selectedWatchId
+        .flatMapLatest { watchId ->
+            if (watchId == null) {
+                findingDao.getQueuedFindingsFlow()
+            } else {
+                findingDao.getQueuedFindingsByWatchFlow(watchId)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val queuedCount: StateFlow<Int> = findingDao.getQueuedFindingsCountFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     val currentFindings: StateFlow<List<Finding>> = combine(
         selectedWatchId,
-        isRejectedTab
-    ) { watchId, isRejected ->
-        watchId to isRejected
-    }.flatMapLatest { (watchId, isRejected) ->
-        if (isRejected) {
-            if (watchId == null) findingDao.getRejectedFindingsFlow() else findingDao.getRejectedFindingsByWatchFlow(watchId)
-        } else {
-            if (watchId == null) findingDao.getActiveFindingsFlow() else findingDao.getActiveFindingsByWatchFlow(watchId)
+        selectedFeedTab
+    ) { watchId, feedTab ->
+        watchId to feedTab
+    }.flatMapLatest { (watchId, feedTab) ->
+        when (feedTab) {
+            FindingsFeedTab.MATCHES -> if (watchId == null) findingDao.getActiveFindingsFlow() else findingDao.getActiveFindingsByWatchFlow(watchId)
+            FindingsFeedTab.QUEUED -> if (watchId == null) findingDao.getQueuedFindingsFlow() else findingDao.getQueuedFindingsByWatchFlow(watchId)
+            FindingsFeedTab.REJECTED -> if (watchId == null) findingDao.getRejectedFindingsFlow() else findingDao.getRejectedFindingsByWatchFlow(watchId)
         }
     }.map { list -> sortByConditionPulse(list) }
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -124,7 +146,13 @@ class FindingsViewModel(
         )
     }
 
+    fun setFeedTab(tab: FindingsFeedTab) {
+        selectedFeedTab.value = tab
+        isRejectedTab.value = (tab == FindingsFeedTab.REJECTED)
+    }
+
     fun setRejectedTab(isRejected: Boolean) {
+        selectedFeedTab.value = if (isRejected) FindingsFeedTab.REJECTED else FindingsFeedTab.MATCHES
         isRejectedTab.value = isRejected
     }
 
@@ -159,6 +187,12 @@ class FindingsViewModel(
     fun clearRejectedFindings() {
         viewModelScope.launch {
             findingDao.clearRejectedFindings()
+        }
+    }
+
+    fun clearQueuedFindings() {
+        viewModelScope.launch {
+            findingDao.clearQueuedFindings()
         }
     }
 }

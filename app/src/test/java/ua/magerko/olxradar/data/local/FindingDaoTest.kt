@@ -122,13 +122,46 @@ class FindingDaoTest {
             )
         )
 
-        // Verify active findings flow contains only non-rejected items (101, 102, 201)
+        // 5. Insert a queued finding (sent to background queue due to timeout)
+        findingDao.insertFinding(
+            Finding(
+                watchId = 1L,
+                listingId = 104L,
+                title = "RX 580 in queue",
+                description = "Pending AI queue processing",
+                price = 3200,
+                currency = "UAH",
+                cityName = "Kharkiv",
+                url = "https://olx.ua/d/104",
+                photoUrl = null,
+                reason = "new",
+                createdAt = 1400L,
+                foundAt = 1400L,
+                isRead = false,
+                aiStatus = AiStatus.QUEUED
+            )
+        )
+
+        // Verify active findings flow contains only non-rejected, non-queued items (101, 102, 201)
         val active = findingDao.getActiveFindingsFlow().first()
         assertEquals(3, active.size)
         assertTrue(active.any { it.listingId == 101L })
         assertTrue(active.any { it.listingId == 102L })
         assertTrue(active.any { it.listingId == 201L })
         assertFalse(active.any { it.listingId == 103L })
+        assertFalse(active.any { it.listingId == 104L })
+
+        // Verify queued findings flow contains ONLY 104
+        val queued = findingDao.getQueuedFindingsFlow().first()
+        assertEquals(1, queued.size)
+        assertEquals(104L, queued[0].listingId)
+        assertEquals(1, findingDao.getQueuedFindingsCountFlow().first())
+
+        // Verify watch-filtered queued flow
+        val watch1Queued = findingDao.getQueuedFindingsByWatchFlow(1L).first()
+        assertEquals(1, watch1Queued.size)
+        val watch2Queued = findingDao.getQueuedFindingsByWatchFlow(2L).first()
+        assertEquals(0, watch2Queued.size)
 
         // Verify rejected findings flow contains ONLY 103
         val rejected = findingDao.getRejectedFindingsFlow().first()
@@ -175,6 +208,11 @@ class FindingDaoTest {
         findingDao.clearRejectedFindings()
         val rejectedAfterClear = findingDao.getRejectedFindingsFlow().first()
         assertTrue(rejectedAfterClear.isEmpty())
+
+        // Clear queued findings: should delete 104
+        findingDao.clearQueuedFindings()
+        val queuedAfterClear = findingDao.getQueuedFindingsFlow().first()
+        assertTrue(queuedAfterClear.isEmpty())
 
         val activeAfterClear = findingDao.getActiveFindingsFlow().first()
         assertEquals(3, activeAfterClear.size)

@@ -47,13 +47,20 @@ class FindingsUiTest {
 
     @Test
     fun testFindingsViewModel_tabStateAndFilterState() {
+        assertEquals(FindingsFeedTab.MATCHES, viewModel.selectedFeedTabState.value)
         assertFalse(viewModel.isRejectedTabState.value)
         assertNull(viewModel.selectedWatchIdState.value)
 
         viewModel.setRejectedTab(true)
+        assertEquals(FindingsFeedTab.REJECTED, viewModel.selectedFeedTabState.value)
         assertTrue(viewModel.isRejectedTabState.value)
 
+        viewModel.setFeedTab(FindingsFeedTab.QUEUED)
+        assertEquals(FindingsFeedTab.QUEUED, viewModel.selectedFeedTabState.value)
+        assertFalse(viewModel.isRejectedTabState.value)
+
         viewModel.setRejectedTab(false)
+        assertEquals(FindingsFeedTab.MATCHES, viewModel.selectedFeedTabState.value)
         assertFalse(viewModel.isRejectedTabState.value)
 
         viewModel.filterByWatch(42L)

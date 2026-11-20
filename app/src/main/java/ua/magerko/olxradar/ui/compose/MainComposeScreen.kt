@@ -49,7 +49,9 @@ fun MainComposeScreen(
     var inspectFinding by remember { mutableStateOf<Finding?>(initialFindingToOpen) }
 
     val activeFindings by findingsViewModel.activeFindings.collectAsState()
+    val queuedFindings by findingsViewModel.queuedFindings.collectAsState()
     val rejectedFindings by findingsViewModel.rejectedFindings.collectAsState()
+    val selectedFeedTab by findingsViewModel.selectedFeedTabState.collectAsState()
     val watches by findingsViewModel.watches.collectAsState()
     val selectedWatchId by findingsViewModel.selectedWatchIdState.collectAsState()
     val isRejectedTabState by findingsViewModel.isRejectedTabState.collectAsState()
@@ -69,8 +71,14 @@ fun MainComposeScreen(
     fun selectTab(tab: NavigationTab) {
         currentTab = tab
         when (tab) {
-            NavigationTab.FINDINGS -> findingsViewModel.setRejectedTab(false)
-            NavigationTab.REJECTED -> findingsViewModel.setRejectedTab(true)
+            NavigationTab.FINDINGS -> {
+                if (selectedFeedTab == ua.magerko.olxradar.ui.FindingsFeedTab.REJECTED) {
+                    findingsViewModel.setFeedTab(ua.magerko.olxradar.ui.FindingsFeedTab.MATCHES)
+                }
+            }
+            NavigationTab.REJECTED -> {
+                findingsViewModel.setFeedTab(ua.magerko.olxradar.ui.FindingsFeedTab.REJECTED)
+            }
             else -> {}
         }
     }
@@ -130,13 +138,14 @@ fun MainComposeScreen(
                             FindingsFeedScreen(
                                 findings = activeFindings,
                                 rejectedFindings = rejectedFindings,
+                                queuedFindings = queuedFindings,
                                 watches = watches,
                                 selectedWatchId = selectedWatchId,
-                                isRejectedTab = false,
-                                onSelectTab = { isRejected ->
-                                    if (isRejected) {
+                                currentFeedTab = selectedFeedTab,
+                                onSelectFeedTab = { tab ->
+                                    findingsViewModel.setFeedTab(tab)
+                                    if (tab == ua.magerko.olxradar.ui.FindingsFeedTab.REJECTED) {
                                         currentTab = NavigationTab.REJECTED
-                                        findingsViewModel.setRejectedTab(true)
                                     }
                                 },
                                 onFilterByWatch = { findingsViewModel.filterByWatch(it) },
@@ -154,13 +163,14 @@ fun MainComposeScreen(
                             FindingsFeedScreen(
                                 findings = activeFindings,
                                 rejectedFindings = rejectedFindings,
+                                queuedFindings = queuedFindings,
                                 watches = watches,
                                 selectedWatchId = selectedWatchId,
-                                isRejectedTab = true,
-                                onSelectTab = { isRejected ->
-                                    if (!isRejected) {
+                                currentFeedTab = selectedFeedTab,
+                                onSelectFeedTab = { tab ->
+                                    findingsViewModel.setFeedTab(tab)
+                                    if (tab != ua.magerko.olxradar.ui.FindingsFeedTab.REJECTED) {
                                         currentTab = NavigationTab.FINDINGS
-                                        findingsViewModel.setRejectedTab(false)
                                     }
                                 },
                                 onFilterByWatch = { findingsViewModel.filterByWatch(it) },
