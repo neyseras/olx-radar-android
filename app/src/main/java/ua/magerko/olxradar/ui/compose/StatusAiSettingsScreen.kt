@@ -287,17 +287,47 @@ fun StatusAiSettingsScreen(
                             )
                         }
 
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = CyberneticSurfaceContainerHigh
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                text = if (radarStatus.isRunning) "${activeRadarCount} из ${watchesList.size} радаров" else "—",
-                                color = CyberneticOnSurfaceVariant,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (radarStatus.isPaused) CyberneticSecondary.copy(alpha = 0.15f) else CyberneticTertiary.copy(alpha = 0.15f),
+                                modifier = Modifier.clickable { statusViewModel.toggleMonitoringPause() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (radarStatus.isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                        contentDescription = null,
+                                        tint = if (radarStatus.isPaused) CyberneticSecondary else CyberneticTertiary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = if (radarStatus.isPaused) "Возобновить" else "Пауза",
+                                        color = if (radarStatus.isPaused) CyberneticSecondary else CyberneticTertiary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = CyberneticSurfaceContainerHigh
+                            ) {
+                                Text(
+                                    text = if (radarStatus.isRunning) "${activeRadarCount} из ${watchesList.size} радаров" else "—",
+                                    color = CyberneticOnSurfaceVariant,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
                         }
                     }
 

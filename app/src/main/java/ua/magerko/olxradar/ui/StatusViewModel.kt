@@ -159,6 +159,15 @@ class StatusViewModel(
             .apply()
     }
 
+    fun toggleMonitoringPause() {
+        val currentlyPaused = RadarState.status.value.isPaused
+        val newAction = if (currentlyPaused) MonitorService.ACTION_RESUME else MonitorService.ACTION_PAUSE
+        val intent = android.content.Intent(getApplication(), MonitorService::class.java).apply {
+            action = newAction
+        }
+        getApplication<Application>().startService(intent)
+    }
+
     fun clearAllFindings() {
         viewModelScope.launch {
             findingDao.clearAllFindings()

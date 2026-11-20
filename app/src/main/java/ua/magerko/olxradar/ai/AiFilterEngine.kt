@@ -103,6 +103,7 @@ class AiFilterEngine(
         } else {
             analysisResult.rejectReason ?: (if (analysisResult.isMatch) "Подходит под условия поиска" else "Не подходит под критерии")
         }
+        AiRuntime.finish(eval.status, analysisResult.confidence, reasonsJoined)
         AiThoughtLogger.log(
             AiThoughtLog(
                 listingId = listing.id,
@@ -201,15 +202,6 @@ class AiFilterEngine(
 
         val base64Images = imageProcessor.processImages(photosToProcess, aiPreferences.maxPhotos)
         val result = groqClient.analyzeListing(listing, watch, base64Images)
-        result.onSuccess { ai ->
-            val statusLabel = when {
-                ai.condition == "broken" || ai.visibleDefects.isNotEmpty() -> AiStatus.NEEDS_REVIEW
-                !ai.isMatch && ai.confidence >= 75 -> AiStatus.REJECTED
-                else -> AiStatus.MATCH
-            }
-            val reasonText = ai.reasons.firstOrNull() ?: ai.rejectReason ?: (if (ai.isMatch) "Подходит под условия поиска" else "Не подходит")
-            AiRuntime.finish(statusLabel, ai.confidence, reasonText)
-        }
         result.onFailure { AiRuntime.finishError(it.message ?: it.toString()) }
         return result
     }

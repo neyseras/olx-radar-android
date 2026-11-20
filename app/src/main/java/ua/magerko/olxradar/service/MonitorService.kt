@@ -38,6 +38,7 @@ class MonitorService : Service() {
         const val KEY_INTERVAL = "poll_interval_sec"
         const val DEFAULT_INTERVAL_SEC = 25
         const val KEY_SERVICE_WAS_RUNNING = "service_was_running"
+        const val KEY_SERVICE_IS_PAUSED = "service_is_paused"
 
         const val KEY_QUIET_HOURS_ENABLED = "quiet_hours_enabled"
         const val KEY_QUIET_HOURS_FROM_HOUR = "quiet_hours_from_hour"
@@ -115,15 +116,20 @@ class MonitorService : Service() {
             }
             ACTION_PAUSE -> {
                 RadarState.setPaused(true)
+                prefs.edit().putBoolean(KEY_SERVICE_IS_PAUSED, true).apply()
                 updateNotification(getString(R.string.service_paused))
             }
             ACTION_RESUME -> {
                 RadarState.setPaused(false)
+                prefs.edit().putBoolean(KEY_SERVICE_IS_PAUSED, false).apply()
                 updateNotification(getString(R.string.service_running))
             }
             ACTION_START, null -> {
+                val wasPaused = prefs.getBoolean(KEY_SERVICE_IS_PAUSED, false)
+                RadarState.setPaused(wasPaused)
+                val initialStatus = if (wasPaused) getString(R.string.service_paused) else getString(R.string.service_starting)
                 try {
-                    val notif = notificationHelper.buildServiceNotification(getString(R.string.service_starting), false)
+                    val notif = notificationHelper.buildServiceNotification(initialStatus, wasPaused)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         startForeground(
                             NotificationHelper.SERVICE_NOTIFICATION_ID,
@@ -139,7 +145,6 @@ class MonitorService : Service() {
 
                 if (!RadarState.status.value.isRunning) {
                     RadarState.setRunning(true)
-                    RadarState.setPaused(false)
                     prefs.edit().putBoolean(KEY_SERVICE_WAS_RUNNING, true).apply()
                     startMonitoringLoop()
                 }
@@ -153,16 +158,18 @@ class MonitorService : Service() {
         loopJob = serviceScope.launch {
             while (isActive) {
                 if (RadarState.status.value.isPaused) {
-                    delay(2000)
+                    delay(1000)
                     continue
                 }
 
                 val activeWatches = db.watchDao().getActiveWatches()
                 if (activeWatches.isEmpty()) {
                     updateNotification(getString(R.string.status_no_active_watches))
-                    delay(4000)
+                    delay(3000)
                     continue
                 }
+
+                if (RadarState.status.value.isPaused) continue
 
                 val now = System.currentTimeMillis()
                 if (now < globalDomainCooldownUntil) {
@@ -170,6 +177,8 @@ class MonitorService : Service() {
                     delay(waitRemaining)
                     continue
                 }
+
+                if (RadarState.status.value.isPaused) continue
 
                 val globalIntervalSec = prefs.getInt(KEY_INTERVAL, DEFAULT_INTERVAL_SEC)
 
@@ -202,8 +211,19 @@ class MonitorService : Service() {
                     continue
                 }
 
+                if (RadarState.status.value.isPaused) continue
+
+                // Check that dueWatch is still active in DB
+                val currentWatch = db.watchDao().getWatchById(dueWatch.id)
+                if (currentWatch == null || !currentWatch.isActive) {
+                    nextRunMap.remove(dueWatch.id)
+                    continue
+                }
+
                 // Poll this due watch
-                pollWatch(dueWatch, globalIntervalSec, activeWatches.size)
+                pollWatch(currentWatch, globalIntervalSec, activeWatches.size)
+
+                if (RadarState.status.value.isPaused) continue
 
                 // Safe pacing between individual radar requests to avoid OLX rate limiting (1 req / 5-7s)
                 val pauseMs = when {
@@ -217,10 +237,12 @@ class MonitorService : Service() {
     }
 
     private suspend fun pollWatch(watch: Watch, globalIntervalSec: Int, activeWatchesCount: Int = 1) {
+        if (RadarState.status.value.isPaused) return
         val now = System.currentTimeMillis()
         try {
             val searchUrl = OlxParser.buildSearchUrl(watch)
             val rawJson = chromiumBridge.fetchJson(searchUrl)
+            if (RadarState.status.value.isPaused) return
             val listings = OlxParser.parseListings(rawJson)
 
             val seenIds = db.seenItemDao().getSeenIds(watch.id).toSet()
@@ -231,6 +253,7 @@ class MonitorService : Service() {
                 // Первый опрос: тихо сохраняем первые актуальные лоты (до 15 шт), чтобы радар не был пустым!
                 var initialSaved = 0
                 for (listing in listings) {
+                    if (RadarState.status.value.isPaused) return
                     db.seenItemDao().markSeenAndPrune(
                         watchId = watch.id,
                         listingId = listing.id,
@@ -265,6 +288,7 @@ class MonitorService : Service() {
                 val isSnoozed = watch.snoozedUntil != null && now < watch.snoozedUntil
 
                 for (listing in listings) {
+                    if (RadarState.status.value.isPaused) return
                     if (!OlxParser.matchesWatch(listing, watch)) {
                         continue
                     }
@@ -339,8 +363,10 @@ class MonitorService : Service() {
             db.watchDao().updateSuccess(watch.id, now)
             RadarState.recordSuccess(watch.id, now)
 
-            val updatedTimeStr = timeFormat.format(Date(now))
-            updateNotification(getString(R.string.service_status_updated, updatedTimeStr))
+            if (!RadarState.status.value.isPaused) {
+                val updatedTimeStr = timeFormat.format(Date(now))
+                updateNotification(getString(R.string.service_status_updated, updatedTimeStr))
+            }
 
             // Scale safe interval based on total active radars to protect from CloudFront throttling (each radar >= activeCount * 7s)
             val baseIntervalSec = watch.intervalSecOverride ?: globalIntervalSec

@@ -133,8 +133,8 @@ object AiRuntime {
                 startedAtMs = cur.startedAtMs,
                 finishedAtMs = now
             )
-            val isApproved = status == "APPROVED" || status == "MATCH"
-            val isRejected = status == "REJECTED"
+            val isApproved = status.equals("APPROVED", ignoreCase = true) || status.equals("MATCH", ignoreCase = true)
+            val isRejected = status.equals("REJECTED", ignoreCase = true)
             val newHistory = (listOf(finishedItem) + cur.history).take(60)
             cur.copy(
                 isBusy = false,
@@ -218,8 +218,8 @@ object AiRuntime {
             startedAtMs = now,
             finishedAtMs = now
         )
-        val isApproved = status == "APPROVED" || status == "MATCH"
-        val isRejected = status == "REJECTED"
+        val isApproved = status.equals("APPROVED", ignoreCase = true) || status.equals("MATCH", ignoreCase = true)
+        val isRejected = status.equals("REJECTED", ignoreCase = true)
         _activity.update { cur ->
             val newHistory = (listOf(cachedItem) + cur.history).take(60)
             cur.copy(

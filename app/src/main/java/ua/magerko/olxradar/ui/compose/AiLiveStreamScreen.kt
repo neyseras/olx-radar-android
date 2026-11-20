@@ -50,20 +50,24 @@ fun AiLiveStreamScreen(
     var showClearConfirmDialog by remember { mutableStateOf(false) }
 
     // Текстовый таймер для отображения живых секунд в карточке
-    var ticker by remember { mutableLongStateOf(0L) }
+    var ticker by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(aiActivity.isBusy) {
         while (aiActivity.isBusy) {
-            kotlinx.coroutines.delay(500)
             ticker = System.currentTimeMillis()
+            kotlinx.coroutines.delay(500)
         }
     }
 
     val history = aiActivity.history
     val filteredHistory = remember(history, filterMode) {
         when (filterMode) {
-            "approved" -> history.filter { it.status == "APPROVED" || it.status == "MATCH" }
-            "rejected" -> history.filter { it.status == "REJECTED" }
-            "other" -> history.filter { it.status != "APPROVED" && it.status != "MATCH" && it.status != "REJECTED" }
+            "approved" -> history.filter { it.status.equals("APPROVED", ignoreCase = true) || it.status.equals("MATCH", ignoreCase = true) }
+            "rejected" -> history.filter { it.status.equals("REJECTED", ignoreCase = true) }
+            "other" -> history.filter { 
+                !it.status.equals("APPROVED", ignoreCase = true) && 
+                !it.status.equals("MATCH", ignoreCase = true) && 
+                !it.status.equals("REJECTED", ignoreCase = true) 
+            }
             else -> history
         }
     }
@@ -210,6 +214,7 @@ fun AiLiveStreamScreen(
                     item {
                         ActiveAiProcessingHero(
                             activity = aiActivity,
+                            currentMs = ticker,
                             onOpenUrl = { openUrl(it) },
                             onCopyUrl = { copyUrl(it) }
                         )
@@ -262,7 +267,7 @@ fun AiLiveStreamScreen(
                                 )
                             }
                             item {
-                                val approvedCount = history.count { it.status == "APPROVED" || it.status == "MATCH" }
+                                val approvedCount = history.count { it.status.equals("APPROVED", ignoreCase = true) || it.status.equals("MATCH", ignoreCase = true) }
                                 FilterChip(
                                     selected = filterMode == "approved",
                                     onClick = { filterMode = "approved" },
@@ -276,7 +281,7 @@ fun AiLiveStreamScreen(
                                 )
                             }
                             item {
-                                val rejectedCount = history.count { it.status == "REJECTED" }
+                                val rejectedCount = history.count { it.status.equals("REJECTED", ignoreCase = true) }
                                 FilterChip(
                                     selected = filterMode == "rejected",
                                     onClick = { filterMode = "rejected" },
@@ -290,7 +295,11 @@ fun AiLiveStreamScreen(
                                 )
                             }
                             item {
-                                val otherCount = history.count { it.status != "APPROVED" && it.status != "MATCH" && it.status != "REJECTED" }
+                                val otherCount = history.count { 
+                                    !it.status.equals("APPROVED", ignoreCase = true) && 
+                                    !it.status.equals("MATCH", ignoreCase = true) && 
+                                    !it.status.equals("REJECTED", ignoreCase = true) 
+                                }
                                 FilterChip(
                                     selected = filterMode == "other",
                                     onClick = { filterMode = "other" },
@@ -391,11 +400,15 @@ fun AiLiveStreamScreen(
 @Composable
 private fun ActiveAiProcessingHero(
     activity: AiRuntime.Activity,
+    currentMs: Long,
     onOpenUrl: (String) -> Unit,
     onCopyUrl: (String) -> Unit
 ) {
     val current = activity.currentItem
     val isBusy = activity.isBusy
+    val busySeconds = if (isBusy && activity.startedAtMs > 0) {
+        (((currentMs.takeIf { it > 0 } ?: System.currentTimeMillis()) - activity.startedAtMs).coerceAtLeast(0) / 1000).toInt()
+    } else 0
 
     Card(
         modifier = Modifier
@@ -452,7 +465,7 @@ private fun ActiveAiProcessingHero(
                         color = CyberneticPrimary.copy(alpha = 0.15f)
                     ) {
                         Text(
-                            text = "${activity.busySeconds} сек",
+                            text = "$busySeconds сек",
                             color = CyberneticPrimary,
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
@@ -627,10 +640,10 @@ private fun ProcessedAiItemCard(
     onOpenUrl: (String) -> Unit,
     onCopyUrl: (String) -> Unit
 ) {
-    val isApproved = item.status == "APPROVED" || item.status == "MATCH"
-    val isRejected = item.status == "REJECTED"
-    val isCached = item.status == "CACHED"
-    val isError = item.status == "ERROR"
+    val isApproved = item.status.equals("APPROVED", ignoreCase = true) || item.status.equals("MATCH", ignoreCase = true)
+    val isRejected = item.status.equals("REJECTED", ignoreCase = true)
+    val isCached = item.status.equals("CACHED", ignoreCase = true)
+    val isError = item.status.equals("ERROR", ignoreCase = true)
 
     val statusBadgeColor = when {
         isApproved -> CyberneticSecondary
@@ -645,7 +658,7 @@ private fun ProcessedAiItemCard(
         isRejected -> "✗ Отклонено ${item.confidence?.let { "$it%" } ?: ""}"
         isCached -> "⚡ Из кэша"
         isError -> "⚠ Ошибка"
-        else -> "⚠ На проверку"
+        else -> "⚠ На проверку ${item.confidence?.let { "$it%" } ?: ""}"
     }
 
     Card(
@@ -690,8 +703,14 @@ private fun ProcessedAiItemCard(
                         agoSec < 3600 -> "${agoSec / 60}м назад"
                         else -> "${agoSec / 3600}ч назад"
                     }
+                    val durationText = if (!isCached && item.startedAtMs > 0 && item.finishedAtMs >= item.startedAtMs) {
+                        String.format(java.util.Locale.US, "%.1fс", item.durationSec)
+                    } else if (isCached) {
+                        "кэш"
+                    } else null
+
                     Text(
-                        text = "· $agoText",
+                        text = "· $agoText" + (durationText?.let { " ($it)" } ?: ""),
                         color = CyberneticOnSurfaceVariant.copy(alpha = 0.7f),
                         fontSize = 10.sp
                     )
