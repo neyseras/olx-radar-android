@@ -56,8 +56,11 @@ class StatusViewModel(
 
     // AI Settings StateFlows
     val aiEnabled = MutableStateFlow(aiPreferences.isAiEnabled)
+    val aiProvider = MutableStateFlow(aiPreferences.provider)
+    val aiBaseUrl = MutableStateFlow(aiPreferences.baseUrl)
     val aiApiKeyMasked = MutableStateFlow(aiPreferences.getMaskedApiKey())
     val aiModelId = MutableStateFlow(aiPreferences.modelId)
+    val isModelVerified = MutableStateFlow(aiPreferences.isCurrentModelVerified())
     val aiConfidence = MutableStateFlow(aiPreferences.confidenceThreshold)
     val aiMaxPhotos = MutableStateFlow(aiPreferences.maxPhotos)
     val aiCheckSuspicious = MutableStateFlow(aiPreferences.isCheckSuspicious)
@@ -127,8 +130,48 @@ class StatusViewModel(
         aiTimeoutSec.value = sec
     }
 
+    suspend fun testVisionCapability(
+        provider: String,
+        baseUrl: String,
+        apiKey: String,
+        modelId: String
+    ): Result<ua.magerko.olxradar.ai.GroqVisionClient.VisionCheckResult> {
+        val effectiveKey = if (apiKey.isNotBlank()) apiKey else aiPreferences.apiKey
+        return groqClient.testVisionCapability(provider, baseUrl, effectiveKey, modelId)
+    }
+
+    suspend fun fetchModels(baseUrl: String, apiKey: String): Result<List<String>> {
+        val effectiveKey = if (apiKey.isNotBlank()) apiKey else aiPreferences.apiKey
+        return groqClient.fetchAvailableModels(baseUrl, effectiveKey)
+    }
+
+    fun applyAiConfig(
+        provider: String,
+        baseUrl: String,
+        apiKey: String,
+        modelId: String
+    ) {
+        aiPreferences.applyProviderConfig(
+            newProvider = provider,
+            newBaseUrl = baseUrl,
+            newApiKey = apiKey,
+            newModelId = modelId,
+            isVerified = true
+        )
+        aiProvider.value = aiPreferences.provider
+        aiBaseUrl.value = aiPreferences.baseUrl
+        aiModelId.value = aiPreferences.modelId
+        aiApiKeyMasked.value = aiPreferences.getMaskedApiKey()
+        isModelVerified.value = true
+    }
+
     suspend fun testGroqApi(): Result<String> {
-        return groqClient.testConnection()
+        val result = groqClient.testConnection()
+        if (result.isSuccess) {
+            isModelVerified.value = true
+            aiPreferences.verifiedModel = aiPreferences.modelId
+        }
+        return result
     }
 
     fun setInterval(sec: Int) {

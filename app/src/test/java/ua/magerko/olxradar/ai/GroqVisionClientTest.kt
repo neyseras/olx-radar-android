@@ -189,4 +189,36 @@ class GroqVisionClientTest {
         val result = groqClient.parseCompletionResponse(emptyChoicesResponse)
         assertNull(result)
     }
+
+    @Test
+    fun testAiProvider_presetsAndDefaults() {
+        assertEquals("https://api.groq.com/openai/v1", AiProvider.GROQ.defaultBaseUrl)
+        assertEquals("https://api.openai.com/v1", AiProvider.OPENAI.defaultBaseUrl)
+        assertEquals("https://openrouter.ai/api/v1", AiProvider.OPENROUTER.defaultBaseUrl)
+        assertEquals(AiProvider.GROQ, AiProvider.fromId("groq"))
+        assertEquals(AiProvider.OPENAI, AiProvider.fromId("openai"))
+        assertEquals(AiProvider.OPENROUTER, AiProvider.fromId("openrouter"))
+        assertEquals(AiProvider.CUSTOM, AiProvider.fromId("custom"))
+        assertEquals(AiProvider.CUSTOM, AiProvider.fromId("unknown_provider"))
+    }
+
+    @Test
+    fun testAiPreferences_providerAndVerificationWorkflow() {
+        aiPreferences.applyProviderConfig(
+            newProvider = "openai",
+            newBaseUrl = "https://api.openai.com/v1",
+            newApiKey = "sk-test-12345678",
+            newModelId = "gpt-4o-mini",
+            isVerified = true
+        )
+
+        assertEquals("openai", aiPreferences.provider)
+        assertEquals("https://api.openai.com/v1", aiPreferences.baseUrl)
+        assertEquals("gpt-4o-mini", aiPreferences.modelId)
+        assertTrue(aiPreferences.isCurrentModelVerified())
+
+        // If model changes without verification, it's not verified
+        aiPreferences.modelId = "gpt-4o"
+        assertFalse(aiPreferences.isCurrentModelVerified())
+    }
 }

@@ -26,9 +26,6 @@ class GroqVisionClient(
 
     companion object {
         private const val TAG = "GroqVisionClient"
-        private const val BASE_URL = "https://api.groq.com/openai/v1"
-        private const val COMPLETIONS_ENDPOINT = "$BASE_URL/chat/completions"
-        private const val MODELS_ENDPOINT = "$BASE_URL/models"
         private const val MAX_RETRIES = 4
         private const val MIN_REQUEST_INTERVAL_MS = 2500L
         private val requestLock = Mutex()
@@ -101,8 +98,24 @@ class GroqVisionClient(
         return semaphore
     }
 
+    data class VisionCheckResult(
+        val isVisionSupported: Boolean,
+        val message: String,
+        val modelId: String,
+        val provider: String,
+        val responseSnippet: String? = null
+    )
+
+    fun getBaseUrl(): String {
+        val raw = aiPreferences.baseUrl.trim().trimEnd('/')
+        return if (raw.startsWith("http://") || raw.startsWith("https://")) raw else "https://$raw"
+    }
+
+    fun getCompletionsEndpoint(baseUrl: String = getBaseUrl()): String = "$baseUrl/chat/completions"
+    fun getModelsEndpoint(baseUrl: String = getBaseUrl()): String = "$baseUrl/models"
+
     /**
-     * Analyzes an OLX listing using Groq Vision API.
+     * Analyzes an OLX listing using OpenAI-compatible Vision API (Groq, OpenAI, OpenRouter, Custom).
      * Retries with exponential backoff on HTTP 429 and transient errors.
      */
     suspend fun analyzeListing(
@@ -111,12 +124,15 @@ class GroqVisionClient(
         base64Images: List<String>
     ): Result<AiAnalysisResult> = withContext(Dispatchers.IO) {
         val apiKey = aiPreferences.apiKey
-        if (apiKey.isBlank()) {
-            return@withContext Result.failure(IllegalStateException("Groq API key is not configured"))
+        val baseUrl = getBaseUrl()
+        val isLocal = baseUrl.contains("localhost") || baseUrl.contains("127.0.0.1") || baseUrl.contains("192.168.") || baseUrl.contains("10.")
+        if (apiKey.isBlank() && !isLocal) {
+            return@withContext Result.failure(IllegalStateException("API-ключ не настроен"))
         }
 
         val userText = buildUserPrompt(listing, watch, base64Images.isNotEmpty())
         val requestBodyJson = buildRequestBody(userText, base64Images, aiPreferences.modelId)
+        val endpoint = getCompletionsEndpoint(baseUrl)
 
         var lastException: Exception? = null
         var retryDelayMs = 2000L
@@ -131,7 +147,7 @@ class GroqVisionClient(
             // Respect shared rate-limit cooldown if 429 was recently encountered
             val cooldownRemaining = rateLimitedUntilMs - System.currentTimeMillis()
             if (cooldownRemaining > 0) {
-                Log.d(TAG, "Groq rate limit cooldown active: waiting ${cooldownRemaining}ms")
+                Log.d(TAG, "Rate limit cooldown active: waiting ${cooldownRemaining}ms")
                 delay(cooldownRemaining)
             }
 
@@ -145,21 +161,21 @@ class GroqVisionClient(
                         }
                         try {
                             val timeoutMs = aiPreferences.timeoutSeconds * 1000
-                            executeHttpRequest(COMPLETIONS_ENDPOINT, apiKey, requestBodyJson, timeoutMs)
+                            executeHttpRequest(endpoint, apiKey, requestBodyJson, timeoutMs)
                         } finally {
                             lastRequestFinishedMs = System.currentTimeMillis()
                         }
                     }
                 }
             } catch (e: HttpRateLimitException) {
-                Log.w(TAG, "Groq 429 Rate Limit (attempt $attempt/$MAX_RETRIES): ${e.message}")
+                Log.w(TAG, "AI 429 Rate Limit (attempt $attempt/$MAX_RETRIES): ${e.message}")
                 lastException = e
                 val waitMs = max(e.retryAfterMs ?: 12000L, 8000L)
                 rateLimitedUntilMs = max(rateLimitedUntilMs, System.currentTimeMillis() + waitMs)
                 retryDelayMs = waitMs
                 continue
             } catch (e: Exception) {
-                Log.w(TAG, "Groq API error on attempt $attempt: ${e.message}")
+                Log.w(TAG, "AI API error on attempt $attempt: ${e.message}")
                 lastException = e
                 continue
             }
@@ -176,66 +192,179 @@ class GroqVisionClient(
     }
 
     /**
-     * Verifies API Key and checks available models, confirming actual Vision (multimodal) support.
+     * Проверяет модель на поддержку Vision (распознавание изображений).
+     * Отправляет тестовый мультимодальный запрос с миниатюрным изображением (1x1 пиксель base64).
+     * Если модель не поддерживает Vision, сервер вернёт 400 Bad Request с ошибкой мультимодальности.
+     * Если поддерживает — вернёт 200 OK.
      */
-    suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
-        val apiKey = aiPreferences.apiKey
-        if (apiKey.isBlank()) {
-            return@withContext Result.failure(IllegalStateException("API-ключ не задан. Введите ключ gsk_... в настройках"))
+    suspend fun testVisionCapability(
+        provider: String,
+        baseUrl: String,
+        apiKey: String,
+        modelId: String
+    ): Result<VisionCheckResult> = withContext(Dispatchers.IO) {
+        val cleanBaseUrl = baseUrl.trim().trimEnd('/').let {
+            if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it"
+        }
+        val cleanModel = modelId.trim()
+        if (cleanModel.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Укажите идентификатор модели (Model ID)"))
+        }
+
+        val isLocal = cleanBaseUrl.contains("localhost") || cleanBaseUrl.contains("127.0.0.1") || cleanBaseUrl.contains("192.168.") || cleanBaseUrl.contains("10.")
+        if (apiKey.isBlank() && !isLocal) {
+            return@withContext Result.failure(IllegalArgumentException("Укажите API-ключ для провайдера"))
+        }
+
+        val testEndpoint = "$cleanBaseUrl/chat/completions"
+        val testImageBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+
+        val bodyObj = JSONObject().apply {
+            put("model", cleanModel)
+            put("max_tokens", 10)
+            val messages = JSONArray()
+            val userMsg = JSONObject().apply {
+                put("role", "user")
+                val content = JSONArray()
+                content.put(JSONObject().apply {
+                    put("type", "text")
+                    put("text", "Vision test: reply OK if you see this image.")
+                })
+                content.put(JSONObject().apply {
+                    put("type", "image_url")
+                    put("image_url", JSONObject().apply {
+                        put("url", "data:image/png;base64,$testImageBase64")
+                    })
+                })
+                put("content", content)
+            }
+            messages.put(userMsg)
+            put("messages", messages)
         }
 
         try {
-            val timeoutMs = 10000
-            val response = executeGetRequest(MODELS_ENDPOINT, apiKey, timeoutMs)
+            val responseJson = executeHttpRequest(
+                urlStr = testEndpoint,
+                apiKey = apiKey.trim(),
+                bodyJson = bodyObj.toString(),
+                timeoutMs = 15000
+            )
+
+            val root = JSONObject(responseJson)
+            val choices = root.optJSONArray("choices")
+            val content = choices?.optJSONObject(0)?.optJSONObject("message")?.optString("content", "") ?: ""
+
+            Result.success(
+                VisionCheckResult(
+                    isVisionSupported = true,
+                    message = "Модель '$cleanModel' успешно подтвердила поддержку Vision (200 OK)",
+                    modelId = cleanModel,
+                    provider = provider,
+                    responseSnippet = content.take(60)
+                )
+            )
+        } catch (e: HttpRateLimitException) {
+            val msg = e.message ?: ""
+            if (isImageUnsupportedError(msg)) {
+                Result.failure(IllegalArgumentException("Модель '$cleanModel' НЕ поддерживает изображения (не является Vision-моделью)."))
+            } else {
+                Result.success(
+                    VisionCheckResult(
+                        isVisionSupported = true,
+                        message = "Модель '$cleanModel' приняла Vision-запрос (сервер временно вернул 429 Rate Limit)",
+                        modelId = cleanModel,
+                        provider = provider
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            val msg = e.message ?: e.toString()
+            if (isImageUnsupportedError(msg)) {
+                Result.failure(IllegalArgumentException("Модель '$cleanModel' НЕ поддерживает изображения (не является Vision-моделью). Выберите модель со зрением."))
+            } else if (msg.contains("401") || msg.contains("Unauthorized") || msg.contains("invalid_api_key")) {
+                Result.failure(IllegalArgumentException("Ошибка авторизации (401 Unauthorized): неверный API-ключ."))
+            } else if (msg.contains("404") || msg.contains("model_not_found") || msg.contains("does not exist")) {
+                Result.failure(IllegalArgumentException("Модель '$cleanModel' не найдена на сервере $cleanBaseUrl (HTTP 404)."))
+            } else {
+                Result.failure(IllegalArgumentException("Ошибка проверки: ${cleanServerErrorMessage(msg)}"))
+            }
+        }
+    }
+
+    /**
+     * Быстрая проверка текущего активного подключения и модели на поддержку Vision.
+     */
+    suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
+        val res = testVisionCapability(
+            provider = aiPreferences.provider,
+            baseUrl = aiPreferences.baseUrl,
+            apiKey = aiPreferences.apiKey,
+            modelId = aiPreferences.modelId
+        )
+        res.fold(
+            onSuccess = { Result.success("${it.provider.uppercase()} 200 OK! Модель '${it.modelId}' готова к работе с фото") },
+            onFailure = { Result.failure(it) }
+        )
+    }
+
+    /**
+     * Загружает список доступных моделей с сервера через эндпоинт /models.
+     */
+    suspend fun fetchAvailableModels(baseUrl: String, apiKey: String): Result<List<String>> = withContext(Dispatchers.IO) {
+        val cleanBaseUrl = baseUrl.trim().trimEnd('/').let {
+            if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it"
+        }
+        val endpoint = "$cleanBaseUrl/models"
+        try {
+            val response = executeGetRequest(endpoint, apiKey, 10000)
             val obj = JSONObject(response)
             val data = obj.optJSONArray("data")
-            val count = data?.length() ?: 0
-
-            val currentModel = aiPreferences.modelId
-            var currentModelFound = false
-            var currentModelSupportsVision = false
-            val visionModels = mutableListOf<String>()
-
+            val list = mutableListOf<String>()
             if (data != null) {
                 for (i in 0 until data.length()) {
                     val m = data.getJSONObject(i)
                     val id = m.optString("id")
-                    val modalities = m.optJSONArray("input_modalities")
-                    var isVision = false
-                    if (modalities != null) {
-                        for (j in 0 until modalities.length()) {
-                            if (modalities.optString(j).equals("image", ignoreCase = true)) {
-                                isVision = true
-                                break
-                            }
-                        }
-                    }
-                    if (isVision) {
-                        visionModels.add(id)
-                    }
-                    if (id.equals(currentModel, ignoreCase = true)) {
-                        currentModelFound = true
-                        currentModelSupportsVision = isVision
+                    if (id.isNotBlank()) {
+                        list.add(id)
                     }
                 }
             }
-
-            if (!currentModelFound) {
-                Result.success("Groq API OK ($count моделей). Модель: $currentModel")
-            } else if (!currentModelSupportsVision) {
-                Result.success("Groq API OK ($count моделей). Внимание: '$currentModel' без Vision")
-            } else {
-                Result.success("Groq API 200 OK! Модель '$currentModel' готова")
-            }
+            Result.success(list.sorted())
         } catch (e: Exception) {
-            val msg = e.message ?: e.toString()
-            val friendlyMsg = when {
-                msg.contains("401") -> "Ошибка 401: Неверный API-ключ. Проверьте gsk_..."
-                msg.contains("429") -> "Ошибка 429: Превышен лимит запросов Groq API"
-                msg.contains("UnknownHostException") || msg.contains("ConnectException") -> "Ошибка сети: нет связи с api.groq.com"
-                else -> msg
+            Result.failure(e)
+        }
+    }
+
+    private fun isImageUnsupportedError(msg: String): Boolean {
+        val lower = msg.lowercase()
+        return lower.contains("does not support image") ||
+               lower.contains("image input") ||
+               lower.contains("multimodal") ||
+               lower.contains("input_modalities") ||
+               lower.contains("not a vision") ||
+               lower.contains("vision is not supported") ||
+               lower.contains("unsupported modal") ||
+               lower.contains("unsupported image") ||
+               lower.contains("expected a string") ||
+               lower.contains("invalid type: object") ||
+               lower.contains("type: 'image_url'") ||
+               lower.contains("does not support multimodal")
+    }
+
+    private fun cleanServerErrorMessage(msg: String): String {
+        return try {
+            val jsonStart = msg.indexOf('{')
+            if (jsonStart != -1) {
+                val jsonPart = msg.substring(jsonStart)
+                val obj = JSONObject(jsonPart)
+                val err = obj.optJSONObject("error")
+                val text = err?.optString("message") ?: obj.optString("message", "")
+                if (text.isNotBlank()) text else msg
+            } else {
+                msg
             }
-            Result.failure(Exception(friendlyMsg, e))
+        } catch (_: Exception) {
+            msg
         }
     }
 
@@ -383,9 +512,13 @@ ${listing.description.ifBlank { "Описание отсутствует" }}
             conn.readTimeout = timeoutMs
             conn.doInput = true
             conn.doOutput = true
-            conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            if (apiKey.isNotBlank()) {
+                conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            }
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            conn.setRequestProperty("User-Agent", "Groq-Android-Client/1.0")
+            conn.setRequestProperty("User-Agent", "OLX-Radar-Vision/1.0")
+            conn.setRequestProperty("HTTP-Referer", "https://github.com/magerko/olx-radar-android")
+            conn.setRequestProperty("X-Title", "OLX Radar")
 
             OutputStreamWriter(conn.outputStream, "UTF-8").use {
                 it.write(bodyJson)
@@ -439,8 +572,12 @@ ${listing.description.ifBlank { "Описание отсутствует" }}
             conn.connectTimeout = timeoutMs
             conn.readTimeout = timeoutMs
             conn.doInput = true
-            conn.setRequestProperty("Authorization", "Bearer $apiKey")
-            conn.setRequestProperty("User-Agent", "Groq-Android-Client/1.0")
+            if (apiKey.isNotBlank()) {
+                conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            }
+            conn.setRequestProperty("User-Agent", "OLX-Radar-Vision/1.0")
+            conn.setRequestProperty("HTTP-Referer", "https://github.com/magerko/olx-radar-android")
+            conn.setRequestProperty("X-Title", "OLX Radar")
 
             val statusCode = conn.responseCode
             if (statusCode in 200..299) {

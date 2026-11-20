@@ -10,8 +10,10 @@ class AiPreferences(context: Context) {
     companion object {
         const val KEY_AI_ENABLED = "ai_enabled"
         const val KEY_AI_PROVIDER = "ai_provider"
+        const val KEY_AI_BASE_URL = "ai_base_url"
         const val KEY_AI_API_KEY = "ai_api_key"
         const val KEY_AI_MODEL = "ai_model"
+        const val KEY_AI_VERIFIED_MODEL = "ai_verified_model"
         const val KEY_AI_CONFIDENCE_THRESHOLD = "ai_confidence_threshold"
         const val KEY_AI_MAX_PHOTOS = "ai_max_photos"
         const val KEY_AI_CHECK_SUSPICIOUS = "ai_check_suspicious"
@@ -56,6 +58,46 @@ class AiPreferences(context: Context) {
     var provider: String
         get() = prefs.getString(KEY_AI_PROVIDER, DEFAULT_PROVIDER) ?: DEFAULT_PROVIDER
         set(value) = prefs.edit().putString(KEY_AI_PROVIDER, value).apply()
+
+    var baseUrl: String
+        get() {
+            val stored = prefs.getString(KEY_AI_BASE_URL, null)
+            if (!stored.isNullOrBlank()) return stored
+            return AiProvider.fromId(provider).defaultBaseUrl
+        }
+        set(value) = prefs.edit().putString(KEY_AI_BASE_URL, value.trim()).apply()
+
+    var verifiedModel: String?
+        get() = prefs.getString(KEY_AI_VERIFIED_MODEL, null)
+        set(value) = prefs.edit().putString(KEY_AI_VERIFIED_MODEL, value).apply()
+
+    fun isCurrentModelVerified(): Boolean {
+        val verified = verifiedModel
+        if (verified.isNullOrBlank()) {
+            return provider == AiProvider.GROQ.id && modelId == BuildConfig.DEFAULT_GROQ_MODEL
+        }
+        return verified == modelId
+    }
+
+    fun applyProviderConfig(
+        newProvider: String,
+        newBaseUrl: String,
+        newApiKey: String,
+        newModelId: String,
+        isVerified: Boolean = true
+    ) {
+        val editor = prefs.edit()
+            .putString(KEY_AI_PROVIDER, newProvider)
+            .putString(KEY_AI_BASE_URL, newBaseUrl.trim())
+            .putString(KEY_AI_MODEL, newModelId.trim())
+        if (newApiKey.isNotBlank()) {
+            editor.putString(KEY_AI_API_KEY, newApiKey.trim())
+        }
+        if (isVerified) {
+            editor.putString(KEY_AI_VERIFIED_MODEL, newModelId.trim())
+        }
+        editor.apply()
+    }
 
     var apiKey: String
         get() {
