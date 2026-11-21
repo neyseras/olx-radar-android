@@ -24,15 +24,36 @@ class GroqVisionClient(
     private val aiPreferences: AiPreferences
 ) {
 
+    data class TargetConfig(
+        val name: String,
+        val provider: String,
+        val baseUrl: String,
+        val apiKey: String,
+        val modelId: String,
+        val isBackup: Boolean
+    )
+
     companion object {
         private const val TAG = "GroqVisionClient"
-        private const val MAX_RETRIES = 4
-        private const val MIN_REQUEST_INTERVAL_MS = 2500L
-        private val requestLock = Mutex()
+        private const val MIN_REQUEST_INTERVAL_MS = 2000L
+        private val primaryLock = Mutex()
+        private val backupLock = Mutex()
         @Volatile
-        private var lastRequestFinishedMs = 0L
+        private var lastPrimaryFinishedMs = 0L
         @Volatile
-        private var rateLimitedUntilMs = 0L
+        private var lastBackupFinishedMs = 0L
+        @Volatile
+        private var primaryCoolingUntilMs = 0L
+        @Volatile
+        private var backupCoolingUntilMs = 0L
+
+        fun isPrimaryCoolingDown(): Boolean = System.currentTimeMillis() < primaryCoolingUntilMs
+        fun isBackupCoolingDown(): Boolean = System.currentTimeMillis() < backupCoolingUntilMs
+        fun getPrimaryCooldownRemainingMs(): Long = (primaryCoolingUntilMs - System.currentTimeMillis()).coerceAtLeast(0L)
+        fun resetCooldowns() {
+            primaryCoolingUntilMs = 0L
+            backupCoolingUntilMs = 0L
+        }
 
         const val SYSTEM_PROMPT = """Ты эксперт по идентификации товаров и фильтрации объявлений OLX.
 Тебе необходимо определить, соответствует ли объявление поисковому запросу пользователя.
@@ -115,84 +136,184 @@ class GroqVisionClient(
     fun getModelsEndpoint(baseUrl: String = getBaseUrl()): String = "$baseUrl/models"
 
     /**
-     * Analyzes an OLX listing using OpenAI-compatible Vision API (Groq, OpenAI, OpenRouter, Custom).
-     * Retries with exponential backoff on HTTP 429 and transient errors.
+     * Анализирует объявление OLX с поддержкой мгновенной ротации (Circuit Breaker & Failover).
+     * Если основной провайдер (например, Groq) возвращает 429 Too Many Requests или находится на кулдауне,
+     * запрос немедленно перенаправляется на резервный провайдер (OpenRouter / 2-й ключ / Custom).
      */
     suspend fun analyzeListing(
         listing: Listing,
         watch: Watch,
         base64Images: List<String>
     ): Result<AiAnalysisResult> = withContext(Dispatchers.IO) {
-        val apiKey = aiPreferences.apiKey
-        val baseUrl = getBaseUrl()
-        val isLocal = baseUrl.contains("localhost") || baseUrl.contains("127.0.0.1") || baseUrl.contains("192.168.") || baseUrl.contains("10.")
-        if (apiKey.isBlank() && !isLocal) {
+        val primaryBaseUrl = getBaseUrl()
+        val primaryApiKey = aiPreferences.apiKey
+        val primaryModelId = aiPreferences.modelId
+        val primaryProvider = aiPreferences.provider
+        val isPrimaryLocal = primaryBaseUrl.contains("localhost") || primaryBaseUrl.contains("127.0.0.1") || primaryBaseUrl.contains("192.168.") || primaryBaseUrl.contains("10.")
+        val isPrimaryConfigured = primaryApiKey.isNotBlank() || isPrimaryLocal
+
+        val primaryTarget = TargetConfig(
+            name = "Основной ($primaryProvider)",
+            provider = primaryProvider,
+            baseUrl = primaryBaseUrl,
+            apiKey = primaryApiKey,
+            modelId = primaryModelId,
+            isBackup = false
+        )
+
+        val backupTarget = if (aiPreferences.isBackupConfigured()) {
+            val rawUrl = aiPreferences.backupBaseUrl.trim().trimEnd('/')
+            val cleanUrl = if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) rawUrl else "https://$rawUrl"
+            TargetConfig(
+                name = "Резервный (${aiPreferences.backupProvider})",
+                provider = aiPreferences.backupProvider,
+                baseUrl = cleanUrl,
+                apiKey = aiPreferences.backupApiKey,
+                modelId = aiPreferences.backupModelId,
+                isBackup = true
+            )
+        } else null
+
+        if (!isPrimaryConfigured && backupTarget == null) {
             return@withContext Result.failure(IllegalStateException("API-ключ не настроен"))
         }
 
         val userText = buildUserPrompt(listing, watch, base64Images.isNotEmpty())
-        val requestBodyJson = buildRequestBody(userText, base64Images, aiPreferences.modelId)
-        val endpoint = getCompletionsEndpoint(baseUrl)
+        val now = System.currentTimeMillis()
 
-        var lastException: Exception? = null
-        var retryDelayMs = 2000L
+        // 1. Circuit Breaker: если основной провайдер на кулдауне из-за недавнего 429 и есть резервный
+        if (now < primaryCoolingUntilMs && backupTarget != null) {
+            val remainingSec = (primaryCoolingUntilMs - now) / 1000
+            AiThoughtLogger.logEvent("⚡ [Circuit Breaker] Основной провайдер ($primaryProvider) на кулдауне ещё ${remainingSec}с (429 Rate Limit). Запрос сразу направлен на резервный (${backupTarget.provider} - ${backupTarget.modelId}).")
+            val backupResult = executeOnTarget(backupTarget, userText, base64Images, allowRetries = false)
+            if (backupResult.isSuccess) {
+                return@withContext backupResult
+            }
+            Log.w(TAG, "Резервный провайдер завершился с ошибкой: ${backupResult.exceptionOrNull()?.message}")
+            if (System.currentTimeMillis() < primaryCoolingUntilMs) {
+                return@withContext backupResult
+            }
+        }
 
-        for (attempt in 0..MAX_RETRIES) {
-            if (attempt > 0) {
-                val jitter = Random.nextLong(200, 800)
-                delay(retryDelayMs + jitter)
-                retryDelayMs = (retryDelayMs * 2).coerceAtMost(30000L)
+        // 2. Если основной настроен — выполняем через него
+        if (isPrimaryConfigured) {
+            val primaryResult = executeOnTarget(
+                target = primaryTarget,
+                userText = userText,
+                base64Images = base64Images,
+                allowRetries = (backupTarget == null)
+            )
+
+            if (primaryResult.isSuccess) {
+                return@withContext primaryResult
             }
 
-            // Respect shared rate-limit cooldown if 429 was recently encountered
-            val cooldownRemaining = rateLimitedUntilMs - System.currentTimeMillis()
+            val exception = primaryResult.exceptionOrNull()
+            if (exception is HttpRateLimitException && backupTarget != null) {
+                val retryMs = exception.retryAfterMs ?: 60000L
+                val cooldownMs = retryMs.coerceIn(15000L, 120000L)
+                primaryCoolingUntilMs = System.currentTimeMillis() + cooldownMs
+                val cooldownSec = cooldownMs / 1000
+                AiThoughtLogger.logEvent("⚠️ [Failover] Основной провайдер ($primaryProvider) вернул 429 Rate Limit (кулдаун ${cooldownSec}с). Мгновенное переключение на резервный (${backupTarget.provider} - ${backupTarget.modelId})...")
+
+                val fallbackResult = executeOnTarget(backupTarget, userText, base64Images, allowRetries = false)
+                if (fallbackResult.isSuccess) {
+                    return@withContext fallbackResult
+                } else {
+                    AiThoughtLogger.logEvent("❌ Резервный провайдер (${backupTarget.provider}) также вернул ошибку: ${fallbackResult.exceptionOrNull()?.message}")
+                    return@withContext fallbackResult
+                }
+            }
+
+            if (backupTarget != null && (exception is java.io.IOException || exception?.message?.contains("500") == true || exception?.message?.contains("503") == true)) {
+                AiThoughtLogger.logEvent("⚠️ Сбой основного провайдера (${exception?.message}). Мгновенное переключение на резервный (${backupTarget.provider})...")
+                val fallbackResult = executeOnTarget(backupTarget, userText, base64Images, allowRetries = false)
+                if (fallbackResult.isSuccess) {
+                    return@withContext fallbackResult
+                }
+            }
+
+            return@withContext primaryResult
+        }
+
+        // 3. Если основной не настроен, но настроен резервный
+        if (backupTarget != null) {
+            return@withContext executeOnTarget(backupTarget, userText, base64Images, allowRetries = false)
+        }
+
+        Result.failure(IllegalStateException("ИИ-провайдер не настроен"))
+    }
+
+    private suspend fun executeOnTarget(
+        target: TargetConfig,
+        userText: String,
+        base64Images: List<String>,
+        allowRetries: Boolean = true
+    ): Result<AiAnalysisResult> {
+        val endpoint = getCompletionsEndpoint(target.baseUrl)
+        val requestBodyJson = buildRequestBody(userText, base64Images, target.modelId)
+        val maxAttempts = if (allowRetries) 1 else 0
+        var lastException: Exception? = null
+
+        val targetLock = if (target.isBackup) backupLock else primaryLock
+
+        for (attempt in 0..maxAttempts) {
+            if (attempt > 0) {
+                delay(1500L)
+            }
+
+            val targetCooldown = if (target.isBackup) backupCoolingUntilMs else primaryCoolingUntilMs
+            val cooldownRemaining = targetCooldown - System.currentTimeMillis()
             if (cooldownRemaining > 0) {
-                Log.d(TAG, "Rate limit cooldown active: waiting ${cooldownRemaining}ms")
+                if (cooldownRemaining > 15000L) {
+                    return Result.failure(HttpRateLimitException("${target.name} на кулдауне ($cooldownRemaining мс осталось)", cooldownRemaining))
+                }
                 delay(cooldownRemaining)
             }
 
             val responseJson = try {
                 getSemaphore().withPermit {
-                    requestLock.withLock {
+                    targetLock.withLock {
                         val now = System.currentTimeMillis()
-                        val elapsed = now - lastRequestFinishedMs
+                        val lastFinished = if (target.isBackup) lastBackupFinishedMs else lastPrimaryFinishedMs
+                        val elapsed = now - lastFinished
                         if (elapsed < MIN_REQUEST_INTERVAL_MS) {
                             delay(MIN_REQUEST_INTERVAL_MS - elapsed)
                         }
                         try {
                             val timeoutMs = aiPreferences.timeoutSeconds * 1000
-                            executeHttpRequest(endpoint, apiKey, requestBodyJson, timeoutMs)
+                            executeHttpRequest(endpoint, target.apiKey, requestBodyJson, timeoutMs)
                         } finally {
-                            lastRequestFinishedMs = System.currentTimeMillis()
+                            if (target.isBackup) {
+                                lastBackupFinishedMs = System.currentTimeMillis()
+                            } else {
+                                lastPrimaryFinishedMs = System.currentTimeMillis()
+                            }
                         }
                     }
                 }
             } catch (e: HttpRateLimitException) {
-                Log.w(TAG, "AI 429 Rate Limit (attempt $attempt/$MAX_RETRIES): ${e.message}")
                 lastException = e
-                val waitMs = max(e.retryAfterMs ?: 12000L, 8000L)
-                rateLimitedUntilMs = max(rateLimitedUntilMs, System.currentTimeMillis() + waitMs)
-                retryDelayMs = waitMs
-                if (waitMs > 60000L) {
-                    // Если лимит суточный или длительный (> 1 мин), не тратим время на повторы в цикле
-                    break
+                if (target.isBackup) {
+                    val waitMs = (e.retryAfterMs ?: 60000L).coerceIn(15000L, 120000L)
+                    backupCoolingUntilMs = System.currentTimeMillis() + waitMs
                 }
-                continue
+                break // Прерываем немедленно при 429
             } catch (e: Exception) {
-                Log.w(TAG, "AI API error on attempt $attempt: ${e.message}")
+                Log.w(TAG, "${target.name} error on attempt $attempt: ${e.message}")
                 lastException = e
                 continue
             }
 
             val result = parseCompletionResponse(responseJson)
             if (result != null) {
-                return@withContext Result.success(result)
+                return Result.success(result)
             } else {
-                lastException = IllegalArgumentException("Failed to parse valid JSON from AI response")
+                lastException = IllegalArgumentException("Не удалось распарсить ответ от ${target.name}")
             }
         }
 
-        Result.failure(lastException ?: RuntimeException("AI analysis failed after retries"))
+        return Result.failure(lastException ?: RuntimeException("${target.name} analysis failed"))
     }
 
     /**
@@ -298,12 +419,17 @@ class GroqVisionClient(
     /**
      * Быстрая проверка текущего активного подключения и модели на поддержку Vision.
      */
-    suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun testConnection(isBackup: Boolean = false): Result<String> = withContext(Dispatchers.IO) {
+        val provider = if (isBackup) aiPreferences.backupProvider else aiPreferences.provider
+        val baseUrl = if (isBackup) aiPreferences.backupBaseUrl else aiPreferences.baseUrl
+        val apiKey = if (isBackup) aiPreferences.backupApiKey else aiPreferences.apiKey
+        val modelId = if (isBackup) aiPreferences.backupModelId else aiPreferences.modelId
+
         val res = testVisionCapability(
-            provider = aiPreferences.provider,
-            baseUrl = aiPreferences.baseUrl,
-            apiKey = aiPreferences.apiKey,
-            modelId = aiPreferences.modelId
+            provider = provider,
+            baseUrl = baseUrl,
+            apiKey = apiKey,
+            modelId = modelId
         )
         res.fold(
             onSuccess = { Result.success("${it.provider.uppercase()} 200 OK! Модель '${it.modelId}' готова к работе с фото") },

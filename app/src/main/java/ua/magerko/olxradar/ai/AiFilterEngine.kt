@@ -26,7 +26,7 @@ class AiFilterEngine(
 
     companion object {
         private const val TAG = "AiFilterEngine"
-        const val AI_MAX_PROCESSING_TIMEOUT_MS = 120_000L // 2 минуты лимит на синхронный анализ
+        const val AI_MAX_PROCESSING_TIMEOUT_MS = 30_000L // 30 секунд лимит на синхронный анализ (Failover & Circuit Breaker)
     }
 
     suspend fun evaluateListing(listing: Listing, watch: Watch): AiEvaluation {
@@ -89,7 +89,7 @@ class AiFilterEngine(
                     runAnalysis(listing, watch)
                 }
                 if (fresh == null) {
-                    AppLog.w(TAG, "ИИ-анализ '${listing.title}' занял > 2 минут -> отправка в очередь ИИ-потока")
+                    AppLog.w(TAG, "ИИ-анализ '${listing.title}' занял > 30 секунд -> отправка в очередь ИИ-потока")
                     AiRuntime.markQueued(
                         listingId = listing.id,
                         title = listing.title,
@@ -108,9 +108,9 @@ class AiFilterEngine(
                             radarTitle = watch.title,
                             status = AiStatus.QUEUED,
                             confidence = null,
-                            reasons = "Анализ превысил 2 минуты (лимит API или много фото). Лот отправлен в очередь ИИ-потока.",
+                            reasons = "Анализ превысил 30 секунд (лимит API или много фото). Лот отправлен в очередь ИИ-потока.",
                             rawJson = "",
-                            error = "Таймаут 2 мин -> Очередь ИИ"
+                            error = "Таймаут 30 сек -> Очередь ИИ"
                         )
                     )
                     AiQueueManager.enqueue(listing, watch)

@@ -58,6 +58,14 @@ fun StatusAiSettingsScreen(
     val aiApiKeyMasked by statusViewModel.aiApiKeyMasked.collectAsState()
     val aiModelId by statusViewModel.aiModelId.collectAsState()
     val isModelVerified by statusViewModel.isModelVerified.collectAsState()
+
+    val isBackupAiEnabled by statusViewModel.isBackupAiEnabled.collectAsState()
+    val backupProvider by statusViewModel.backupProvider.collectAsState()
+    val backupBaseUrl by statusViewModel.backupBaseUrl.collectAsState()
+    val backupApiKeyMasked by statusViewModel.backupApiKeyMasked.collectAsState()
+    val backupModelId by statusViewModel.backupModelId.collectAsState()
+    val isBackupModelVerified by statusViewModel.isBackupModelVerified.collectAsState()
+
     val aiConfidence by statusViewModel.aiConfidence.collectAsState()
     val aiMaxPhotos by statusViewModel.aiMaxPhotos.collectAsState()
     val aiCheckSuspicious by statusViewModel.aiCheckSuspicious.collectAsState()
@@ -124,11 +132,15 @@ fun StatusAiSettingsScreen(
     val pssMb = processPssMb
 
     var showProviderConfigDialog by remember { mutableStateOf(false) }
+    var showBackupProviderConfigDialog by remember { mutableStateOf(false) }
     var showAiThoughtsDialog by remember { mutableStateOf(false) }
     val aiThoughtLogs by ua.magerko.olxradar.ai.AiThoughtLogger.logsFlow.collectAsState()
     var testStatusText by remember { mutableStateOf<String?>(null) }
     var testStatusSuccess by remember { mutableStateOf<Boolean?>(null) }
     var isTestingKey by remember { mutableStateOf(false) }
+    var testBackupStatusText by remember { mutableStateOf<String?>(null) }
+    var testBackupStatusSuccess by remember { mutableStateOf<Boolean?>(null) }
+    var isTestingBackupKey by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -923,6 +935,277 @@ fun StatusAiSettingsScreen(
                                     )
                                 }
                             }
+
+                            // BACKUP / FAILOVER PROVIDER CARD
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(
+                                        1.dp,
+                                        if (isBackupAiEnabled) CyberneticSecondary.copy(alpha = 0.35f) else CyberneticOutlineVariant.copy(alpha = 0.2f),
+                                        RoundedCornerShape(12.dp)
+                                    ),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = CyberneticSurfaceContainerLow)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AltRoute,
+                                                contentDescription = null,
+                                                tint = if (isBackupAiEnabled) CyberneticSecondary else CyberneticOutline,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Column {
+                                                Text(
+                                                    text = "Резервный провайдер (Failover)",
+                                                    color = CyberneticOnSurface,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = "Мгновенный переход при лимитах 429",
+                                                    color = CyberneticOnSurfaceVariant,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+
+                                        Switch(
+                                            checked = isBackupAiEnabled,
+                                            onCheckedChange = { statusViewModel.setBackupAiEnabled(it) },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberneticSecondary,
+                                                checkedTrackColor = CyberneticSecondary.copy(alpha = 0.35f),
+                                                uncheckedThumbColor = CyberneticOutline,
+                                                uncheckedTrackColor = CyberneticSurfaceContainer
+                                            )
+                                        )
+                                    }
+
+                                    if (isBackupAiEnabled) {
+                                        Surface(
+                                            onClick = { showBackupProviderConfigDialog = true },
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = CyberneticSurfaceContainer,
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                1.dp,
+                                                if (isBackupModelVerified) CyberneticSecondary.copy(alpha = 0.45f) else CyberneticTertiary.copy(alpha = 0.4f)
+                                            ),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(10.dp),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = CyberneticSecondary.copy(alpha = 0.16f)
+                                                    ) {
+                                                        Text(
+                                                            text = AiProvider.fromId(backupProvider).displayName,
+                                                            color = CyberneticSecondary,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+
+                                                    if (isBackupModelVerified) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            color = CyberneticSecondary.copy(alpha = 0.16f)
+                                                        ) {
+                                                            Row(
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.CheckCircle,
+                                                                    contentDescription = null,
+                                                                    tint = CyberneticSecondary,
+                                                                    modifier = Modifier.size(12.dp)
+                                                                )
+                                                                Text(
+                                                                    text = "Vision проверена",
+                                                                    color = CyberneticSecondary,
+                                                                    fontSize = 10.sp,
+                                                                    fontWeight = FontWeight.Bold
+                                                                )
+                                                            }
+                                                        }
+                                                    } else {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            color = CyberneticTertiary.copy(alpha = 0.16f)
+                                                        ) {
+                                                            Text(
+                                                                text = "⚠️ Vision не подтверждена",
+                                                                color = CyberneticTertiary,
+                                                                fontSize = 10.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
+                                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                    Text(
+                                                        text = backupModelId,
+                                                        color = CyberneticOnSurface,
+                                                        fontSize = 12.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = backupBaseUrl,
+                                                        color = CyberneticOnSurfaceVariant,
+                                                        fontSize = 10.sp,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Key,
+                                                            contentDescription = null,
+                                                            tint = CyberneticOutline,
+                                                            modifier = Modifier.size(13.dp)
+                                                        )
+                                                        Text(
+                                                            text = if (backupApiKeyMasked.isNotBlank()) backupApiKeyMasked else "Без ключа",
+                                                            color = CyberneticOnSurfaceVariant,
+                                                            fontSize = 11.sp,
+                                                            fontFamily = FontFamily.Monospace
+                                                        )
+                                                    }
+
+                                                    Icon(
+                                                        imageVector = Icons.Default.ChevronRight,
+                                                        contentDescription = null,
+                                                        tint = CyberneticOnSurfaceVariant,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        // Quick test backup button
+                                        OutlinedButton(
+                                            onClick = {
+                                                isTestingBackupKey = true
+                                                testBackupStatusText = null
+                                                coroutineScope.launch {
+                                                    val result = statusViewModel.testBackupApi()
+                                                    isTestingBackupKey = false
+                                                    if (result.isSuccess) {
+                                                        testBackupStatusSuccess = true
+                                                        testBackupStatusText = "200 OK: Резерв готов!"
+                                                        Toast.makeText(context, result.getOrNull() ?: "Резервное подключение успешно!", Toast.LENGTH_LONG).show()
+                                                    } else {
+                                                        testBackupStatusSuccess = false
+                                                        val err = result.exceptionOrNull()?.message ?: "Ошибка подключения"
+                                                        testBackupStatusText = if (err.contains("401")) {
+                                                            "Ошибка 401: Неверный ключ"
+                                                        } else {
+                                                            "Ошибка: ${err.take(28)}..."
+                                                        }
+                                                        Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                                                    }
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                contentColor = when (testBackupStatusSuccess) {
+                                                    true -> CyberneticSecondary
+                                                    false -> CyberneticError
+                                                    null -> CyberneticSecondary
+                                                }
+                                            ),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                1.dp,
+                                                when (testBackupStatusSuccess) {
+                                                    true -> CyberneticSecondary.copy(alpha = 0.5f)
+                                                    false -> CyberneticError.copy(alpha = 0.5f)
+                                                    null -> CyberneticSecondary.copy(alpha = 0.35f)
+                                                }
+                                            ),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(36.dp)
+                                        ) {
+                                            if (isTestingBackupKey) {
+                                                CircularProgressIndicator(
+                                                    color = CyberneticSecondary,
+                                                    modifier = Modifier.size(14.dp),
+                                                    strokeWidth = 2.dp
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "Проверка резерва...",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = when (testBackupStatusSuccess) {
+                                                        true -> Icons.Default.CheckCircle
+                                                        false -> Icons.Default.ErrorOutline
+                                                        null -> Icons.Default.Speed
+                                                    },
+                                                    contentDescription = null,
+                                                    tint = when (testBackupStatusSuccess) {
+                                                        true -> CyberneticSecondary
+                                                        false -> CyberneticError
+                                                        null -> CyberneticSecondary
+                                                    },
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = testBackupStatusText ?: "Проверить резервное подключение",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // Confidence Threshold (4 Segments)
@@ -1287,6 +1570,7 @@ fun StatusAiSettingsScreen(
     // Provider & Vision Model Config Dialog
     if (showProviderConfigDialog) {
         AiProviderConfigDialog(
+            dialogTitle = "Основной провайдер и модель",
             currentProvider = aiProvider,
             currentBaseUrl = aiBaseUrl,
             currentModelId = aiModelId,
@@ -1308,6 +1592,30 @@ fun StatusAiSettingsScreen(
         )
     }
 
+    if (showBackupProviderConfigDialog) {
+        AiProviderConfigDialog(
+            dialogTitle = "Резервный провайдер (Failover)",
+            currentProvider = backupProvider,
+            currentBaseUrl = backupBaseUrl,
+            currentModelId = backupModelId,
+            currentApiKeyMasked = backupApiKeyMasked,
+            onDismiss = { showBackupProviderConfigDialog = false },
+            onApply = { provider, baseUrl, apiKey, modelId ->
+                statusViewModel.applyBackupAiConfig(provider, baseUrl, apiKey, modelId)
+                showBackupProviderConfigDialog = false
+                testBackupStatusText = null
+                testBackupStatusSuccess = true
+                Toast.makeText(context, "Резервный провайдер сохранён!", Toast.LENGTH_SHORT).show()
+            },
+            onTestVision = { provider, baseUrl, apiKey, modelId ->
+                statusViewModel.testVisionCapability(provider, baseUrl, apiKey, modelId)
+            },
+            onFetchModels = { baseUrl, apiKey ->
+                statusViewModel.fetchModels(baseUrl, apiKey)
+            }
+        )
+    }
+
     if (showAiThoughtsDialog) {
         AiThoughtsDialog(
             logs = aiThoughtLogs,
@@ -1319,6 +1627,7 @@ fun StatusAiSettingsScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiProviderConfigDialog(
+    dialogTitle: String = "Провайдер и Vision-модель",
     currentProvider: String,
     currentBaseUrl: String,
     currentModelId: String,
@@ -1371,7 +1680,7 @@ fun AiProviderConfigDialog(
                         modifier = Modifier.size(22.dp)
                     )
                     Text(
-                        text = "Провайдер и Vision-модель",
+                        text = dialogTitle,
                         color = CyberneticOnSurface,
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp

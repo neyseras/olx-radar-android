@@ -221,4 +221,37 @@ class GroqVisionClientTest {
         aiPreferences.modelId = "gpt-4o"
         assertFalse(aiPreferences.isCurrentModelVerified())
     }
+
+    @Test
+    fun testBackupAiPreferences_defaultsAndConfiguration() {
+        assertFalse(aiPreferences.isBackupAiEnabled)
+        assertFalse(aiPreferences.isBackupConfigured())
+
+        aiPreferences.applyBackupProviderConfig(
+            newProvider = "openrouter",
+            newBaseUrl = "https://openrouter.ai/api/v1",
+            newApiKey = "sk-or-v1-test",
+            newModelId = "qwen/qwen-2.5-vl-72b-instruct:free",
+            isVerified = true
+        )
+
+        assertEquals("openrouter", aiPreferences.backupProvider)
+        assertEquals("https://openrouter.ai/api/v1", aiPreferences.backupBaseUrl)
+        assertEquals("sk-or-v1-test", aiPreferences.backupApiKey)
+        assertEquals("qwen/qwen-2.5-vl-72b-instruct:free", aiPreferences.backupModelId)
+        assertTrue(aiPreferences.isBackupModelVerified())
+
+        // Still not configured until enabled
+        assertFalse(aiPreferences.isBackupConfigured())
+        aiPreferences.isBackupAiEnabled = true
+        assertTrue(aiPreferences.isBackupConfigured())
+    }
+
+    @Test
+    fun testCircuitBreakerCooldownMethods() {
+        GroqVisionClient.resetCooldowns()
+        assertFalse(GroqVisionClient.isPrimaryCoolingDown())
+        assertFalse(GroqVisionClient.isBackupCoolingDown())
+        assertEquals(0L, GroqVisionClient.getPrimaryCooldownRemainingMs())
+    }
 }

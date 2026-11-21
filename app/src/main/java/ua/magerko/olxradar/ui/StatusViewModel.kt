@@ -61,6 +61,14 @@ class StatusViewModel(
     val aiApiKeyMasked = MutableStateFlow(aiPreferences.getMaskedApiKey())
     val aiModelId = MutableStateFlow(aiPreferences.modelId)
     val isModelVerified = MutableStateFlow(aiPreferences.isCurrentModelVerified())
+
+    val isBackupAiEnabled = MutableStateFlow(aiPreferences.isBackupAiEnabled)
+    val backupProvider = MutableStateFlow(aiPreferences.backupProvider)
+    val backupBaseUrl = MutableStateFlow(aiPreferences.backupBaseUrl)
+    val backupApiKeyMasked = MutableStateFlow(aiPreferences.getMaskedBackupApiKey())
+    val backupModelId = MutableStateFlow(aiPreferences.backupModelId)
+    val isBackupModelVerified = MutableStateFlow(aiPreferences.isBackupModelVerified())
+
     val aiConfidence = MutableStateFlow(aiPreferences.confidenceThreshold)
     val aiMaxPhotos = MutableStateFlow(aiPreferences.maxPhotos)
     val aiCheckSuspicious = MutableStateFlow(aiPreferences.isCheckSuspicious)
@@ -163,6 +171,40 @@ class StatusViewModel(
         aiModelId.value = aiPreferences.modelId
         aiApiKeyMasked.value = aiPreferences.getMaskedApiKey()
         isModelVerified.value = true
+    }
+
+    fun setBackupAiEnabled(enabled: Boolean) {
+        aiPreferences.isBackupAiEnabled = enabled
+        isBackupAiEnabled.value = enabled
+    }
+
+    fun applyBackupAiConfig(
+        provider: String,
+        baseUrl: String,
+        apiKey: String,
+        modelId: String
+    ) {
+        aiPreferences.applyBackupProviderConfig(
+            newProvider = provider,
+            newBaseUrl = baseUrl,
+            newApiKey = apiKey,
+            newModelId = modelId,
+            isVerified = true
+        )
+        backupProvider.value = aiPreferences.backupProvider
+        backupBaseUrl.value = aiPreferences.backupBaseUrl
+        backupModelId.value = aiPreferences.backupModelId
+        backupApiKeyMasked.value = aiPreferences.getMaskedBackupApiKey()
+        isBackupModelVerified.value = true
+    }
+
+    suspend fun testBackupApi(): Result<String> {
+        val result = groqClient.testConnection(isBackup = true)
+        if (result.isSuccess) {
+            isBackupModelVerified.value = true
+            aiPreferences.backupVerifiedModel = aiPreferences.backupModelId
+        }
+        return result
     }
 
     suspend fun testGroqApi(): Result<String> {

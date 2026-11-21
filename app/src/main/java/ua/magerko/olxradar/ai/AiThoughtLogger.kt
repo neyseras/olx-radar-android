@@ -130,6 +130,21 @@ object AiThoughtLogger {
         saveToDiskAsync()
     }
 
+    fun logEvent(message: String, radarTitle: String = "Система ИИ", status: String = "INFO") {
+        log(
+            AiThoughtLog(
+                listingId = 0L,
+                title = message,
+                price = "",
+                radarTitle = radarTitle,
+                status = status,
+                confidence = null,
+                reasons = message,
+                rawJson = ""
+            )
+        )
+    }
+
     fun clear() {
         synchronized(logs) {
             logs.clear()

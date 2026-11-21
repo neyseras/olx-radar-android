@@ -23,6 +23,13 @@ class AiPreferences(context: Context) {
         const val KEY_AI_TIMEOUT_SEC = "ai_timeout_sec"
         const val KEY_AI_NOTIFY_REJECTED = "ai_notify_rejected"
 
+        const val KEY_BACKUP_AI_ENABLED = "backup_ai_enabled"
+        const val KEY_BACKUP_PROVIDER = "backup_ai_provider"
+        const val KEY_BACKUP_BASE_URL = "backup_ai_base_url"
+        const val KEY_BACKUP_API_KEY = "backup_ai_api_key"
+        const val KEY_BACKUP_MODEL = "backup_ai_model"
+        const val KEY_BACKUP_VERIFIED_MODEL = "backup_ai_verified_model"
+
         const val DEFAULT_PROVIDER = "groq"
         const val DEFAULT_CONFIDENCE_THRESHOLD = 75
         const val DEFAULT_MAX_PHOTOS = 1
@@ -32,6 +39,10 @@ class AiPreferences(context: Context) {
         const val DEFAULT_MAX_CONCURRENT = 1
         const val DEFAULT_TIMEOUT_SEC = 25
         const val DEFAULT_NOTIFY_REJECTED = false
+
+        const val DEFAULT_BACKUP_AI_ENABLED = false
+        const val DEFAULT_BACKUP_PROVIDER = "openrouter"
+        const val DEFAULT_BACKUP_MODEL = "qwen/qwen-2.5-vl-72b-instruct:free"
     }
 
     private val prefs: SharedPreferences =
@@ -169,6 +180,86 @@ class AiPreferences(context: Context) {
 
     fun getMaskedApiKey(): String {
         val key = apiKey
+        if (key.isBlank()) return ""
+        if (key.length <= 8) return "••••••••"
+        return "${key.take(4)}...${key.takeLast(4)}"
+    }
+
+    var isBackupAiEnabled: Boolean
+        get() = prefs.getBoolean(KEY_BACKUP_AI_ENABLED, DEFAULT_BACKUP_AI_ENABLED)
+        set(value) = prefs.edit().putBoolean(KEY_BACKUP_AI_ENABLED, value).apply()
+
+    var backupProvider: String
+        get() = prefs.getString(KEY_BACKUP_PROVIDER, DEFAULT_BACKUP_PROVIDER) ?: DEFAULT_BACKUP_PROVIDER
+        set(value) = prefs.edit().putString(KEY_BACKUP_PROVIDER, value).apply()
+
+    var backupBaseUrl: String
+        get() {
+            val stored = prefs.getString(KEY_BACKUP_BASE_URL, null)
+            if (!stored.isNullOrBlank()) return stored
+            return AiProvider.fromId(backupProvider).defaultBaseUrl
+        }
+        set(value) = prefs.edit().putString(KEY_BACKUP_BASE_URL, value.trim()).apply()
+
+    var backupApiKey: String
+        get() = prefs.getString(KEY_BACKUP_API_KEY, "") ?: ""
+        set(value) {
+            val trimmed = value.trim()
+            if (trimmed.isEmpty()) {
+                prefs.edit().remove(KEY_BACKUP_API_KEY).apply()
+            } else {
+                prefs.edit().putString(KEY_BACKUP_API_KEY, trimmed).apply()
+            }
+        }
+
+    var backupModelId: String
+        get() {
+            val stored = prefs.getString(KEY_BACKUP_MODEL, null)
+            if (!stored.isNullOrBlank()) return stored
+            return AiProvider.fromId(backupProvider).defaultModel
+        }
+        set(value) = prefs.edit().putString(KEY_BACKUP_MODEL, value.trim()).apply()
+
+    var backupVerifiedModel: String?
+        get() = prefs.getString(KEY_BACKUP_VERIFIED_MODEL, null)
+        set(value) = prefs.edit().putString(KEY_BACKUP_VERIFIED_MODEL, value).apply()
+
+    fun isBackupModelVerified(): Boolean {
+        val verified = backupVerifiedModel
+        if (verified.isNullOrBlank()) return false
+        return verified == backupModelId
+    }
+
+    fun isBackupConfigured(): Boolean {
+        if (!isBackupAiEnabled) return false
+        val url = backupBaseUrl
+        val isLocal = url.contains("localhost") || url.contains("127.0.0.1") || url.contains("192.168.") || url.contains("10.")
+        val hasKey = backupApiKey.isNotBlank() || isLocal
+        return hasKey && backupModelId.isNotBlank()
+    }
+
+    fun applyBackupProviderConfig(
+        newProvider: String,
+        newBaseUrl: String,
+        newApiKey: String,
+        newModelId: String,
+        isVerified: Boolean = true
+    ) {
+        val editor = prefs.edit()
+            .putString(KEY_BACKUP_PROVIDER, newProvider)
+            .putString(KEY_BACKUP_BASE_URL, newBaseUrl.trim())
+            .putString(KEY_BACKUP_MODEL, newModelId.trim())
+        if (newApiKey.isNotBlank()) {
+            editor.putString(KEY_BACKUP_API_KEY, newApiKey.trim())
+        }
+        if (isVerified) {
+            editor.putString(KEY_BACKUP_VERIFIED_MODEL, newModelId.trim())
+        }
+        editor.apply()
+    }
+
+    fun getMaskedBackupApiKey(): String {
+        val key = backupApiKey
         if (key.isBlank()) return ""
         if (key.length <= 8) return "••••••••"
         return "${key.take(4)}...${key.takeLast(4)}"
