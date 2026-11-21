@@ -122,7 +122,9 @@ class AiFilterEngine(
                     )
                 }
                 if (fresh.isFailure) {
-                    return handleAiError(fresh.exceptionOrNull(), listing, watch)
+                    val errEval = handleAiError(fresh.exceptionOrNull(), listing, watch)
+                    AiRuntime.finishError(fresh.exceptionOrNull()?.message ?: "AI failed")
+                    return errEval
                 }
                 analysisResult = fresh.getOrThrow().copy(query = watch.query.trim())
                 try {
@@ -169,7 +171,9 @@ class AiFilterEngine(
                 )
             }
             if (fresh.isFailure) {
-                return handleAiError(fresh.exceptionOrNull(), listing, watch)
+                val errEval = handleAiError(fresh.exceptionOrNull(), listing, watch)
+                AiRuntime.finishError(fresh.exceptionOrNull()?.message ?: "AI failed")
+                return errEval
             }
             analysisResult = fresh.getOrThrow().copy(query = watch.query.trim())
             try {
@@ -217,7 +221,9 @@ class AiFilterEngine(
 
         val fresh = runAnalysis(listing, watch)
         if (fresh.isFailure) {
-            return handleAiError(fresh.exceptionOrNull(), listing, watch)
+            val errEval = handleAiError(fresh.exceptionOrNull(), listing, watch)
+            AiRuntime.finishError(fresh.exceptionOrNull()?.message ?: "AI direct failed")
+            return errEval
         }
         val analysisResult = fresh.getOrThrow().copy(query = watch.query.trim())
         try {
@@ -281,9 +287,20 @@ class AiFilterEngine(
         val eval = fresh.fold(
             onSuccess = { rawResult ->
                 val withQuery = rawResult.copy(query = watch.query.trim())
-                evaluateResult(withQuery).copy(result = withQuery)
+                val res = evaluateResult(withQuery).copy(result = withQuery)
+                val reasonsJoined = if (withQuery.reasons.isNotEmpty()) {
+                    withQuery.reasons.joinToString("\n• ", prefix = "• ")
+                } else {
+                    withQuery.rejectReason ?: (if (withQuery.isMatch) "Подходит под условия поиска" else "Не подходит")
+                }
+                AiRuntime.finish(res.status, withQuery.confidence, reasonsJoined)
+                res
             },
-            onFailure = { handleAiError(it, listing, watch) }
+            onFailure = {
+                val errEval = handleAiError(it, listing, watch)
+                AiRuntime.finishError(it.message ?: "Ошибка повторного анализа")
+                errEval
+            }
         )
 
         val updated = finding.copy(

@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -1643,6 +1644,9 @@ fun AiProviderConfigDialog(
     var enteredApiKey by remember { mutableStateOf("") }
     var enteredModelId by remember { mutableStateOf(currentModelId) }
     var isApiKeyVisible by remember { mutableStateOf(false) }
+    var showCustomBaseUrl by remember(selectedProvider) {
+        mutableStateOf(selectedProvider.equals(AiProvider.CUSTOM.id, ignoreCase = true))
+    }
 
     var isTestingVision by remember { mutableStateOf(false) }
     var visionCheckResult by remember { mutableStateOf<Result<GroqVisionClient.VisionCheckResult>?>(null) }
@@ -1728,6 +1732,7 @@ fun AiProviderConfigDialog(
                                         selectedProvider = p.id
                                         enteredBaseUrl = p.defaultBaseUrl
                                         enteredModelId = p.defaultModel
+                                        showCustomBaseUrl = p.id.equals(AiProvider.CUSTOM.id, ignoreCase = true)
                                         invalidateVerification()
                                     }
                                 },
@@ -1756,45 +1761,86 @@ fun AiProviderConfigDialog(
                 }
 
                 // Base URL
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val isCustomProvider = selectedProvider.equals(AiProvider.CUSTOM.id, ignoreCase = true)
+                if (!showCustomBaseUrl && !isCustomProvider) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(CyberneticSurfaceContainerLow)
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Base URL (OpenAI API)",
+                            text = "URL: $enteredBaseUrl",
                             color = CyberneticOnSurfaceVariant,
-                            fontSize = 12.sp
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
-                        if (!enteredBaseUrl.equals(activeProviderConfig.defaultBaseUrl, ignoreCase = true)) {
-                            Text(
-                                text = "Сброс к дефолту",
-                                color = CyberneticPrimary,
-                                fontSize = 11.sp,
-                                modifier = Modifier.clickable {
-                                    enteredBaseUrl = activeProviderConfig.defaultBaseUrl
-                                    invalidateVerification()
-                                }
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Изменить",
+                            color = CyberneticPrimary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clickable { showCustomBaseUrl = true }
+                        )
                     }
-                    OutlinedTextField(
-                        value = enteredBaseUrl,
-                        onValueChange = {
-                            enteredBaseUrl = it
-                            invalidateVerification()
-                        },
-                        placeholder = { Text("https://.../v1") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = CyberneticOnSurface,
-                            unfocusedTextColor = CyberneticOnSurface,
-                            focusedBorderColor = CyberneticPrimary,
-                            unfocusedBorderColor = CyberneticOutlineVariant
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Base URL (OpenAI API)",
+                                color = CyberneticOnSurfaceVariant,
+                                fontSize = 12.sp
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (!isCustomProvider) {
+                                    Text(
+                                        text = "Скрыть",
+                                        color = CyberneticOnSurfaceVariant,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.clickable { showCustomBaseUrl = false }
+                                    )
+                                }
+                                if (!enteredBaseUrl.equals(activeProviderConfig.defaultBaseUrl, ignoreCase = true)) {
+                                    Text(
+                                        text = "Сброс к дефолту",
+                                        color = CyberneticPrimary,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.clickable {
+                                            enteredBaseUrl = activeProviderConfig.defaultBaseUrl
+                                            invalidateVerification()
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = enteredBaseUrl,
+                            onValueChange = {
+                                enteredBaseUrl = it
+                                invalidateVerification()
+                            },
+                            placeholder = { Text("https://.../v1") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = CyberneticOnSurface,
+                                unfocusedTextColor = CyberneticOnSurface,
+                                focusedBorderColor = CyberneticPrimary,
+                                unfocusedBorderColor = CyberneticOutlineVariant
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
 
                 // API Key
@@ -1886,18 +1932,19 @@ fun AiProviderConfigDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    // Suggested models chips
+                    // Suggested models chips (горизонтальный скролл)
                     if (activeProviderConfig.suggestedVisionModels.isNotEmpty()) {
                         Text(
                             text = "Рекомендуемые Vision-модели:",
                             color = CyberneticOnSurfaceVariant,
                             fontSize = 11.sp
                         )
-                        Row(
+                        LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            activeProviderConfig.suggestedVisionModels.forEach { sugModel ->
+                            items(activeProviderConfig.suggestedVisionModels.size) { index ->
+                                val sugModel = activeProviderConfig.suggestedVisionModels[index]
                                 val isSelected = sugModel.equals(enteredModelId.trim(), ignoreCase = true)
                                 Surface(
                                     onClick = {
@@ -1916,25 +1963,26 @@ fun AiProviderConfigDialog(
                                         color = if (isSelected) CyberneticPrimary else CyberneticOnSurface,
                                         fontSize = 11.sp,
                                         fontFamily = FontFamily.Monospace,
-                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                                     )
                                 }
                             }
                         }
                     }
 
-                    // Loaded models chips if any
+                    // Loaded models chips if any (горизонтальный скролл)
                     if (availableModels.isNotEmpty()) {
                         Text(
                             text = "Модели с вашего сервера (${availableModels.size}):",
                             color = CyberneticOnSurfaceVariant,
                             fontSize = 11.sp
                         )
-                        Row(
+                        LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            availableModels.take(4).forEach { srvModel ->
+                            items(availableModels.take(8).size) { index ->
+                                val srvModel = availableModels[index]
                                 val isSelected = srvModel.equals(enteredModelId.trim(), ignoreCase = true)
                                 Surface(
                                     onClick = {
@@ -1953,7 +2001,7 @@ fun AiProviderConfigDialog(
                                         color = if (isSelected) CyberneticPrimary else CyberneticOnSurface,
                                         fontSize = 11.sp,
                                         fontFamily = FontFamily.Monospace,
-                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                                     )
                                 }
                             }
@@ -1961,139 +2009,89 @@ fun AiProviderConfigDialog(
                     }
                 }
 
-                // Кнопка и статус проверки зрение (Vision)
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = when {
-                        isVerified -> CyberneticSecondary.copy(alpha = 0.12f)
-                        visionCheckResult?.isFailure == true -> CyberneticError.copy(alpha = 0.12f)
-                        else -> CyberneticSurfaceContainerLow
-                    },
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        when {
-                            isVerified -> CyberneticSecondary.copy(alpha = 0.6f)
-                            visionCheckResult?.isFailure == true -> CyberneticError.copy(alpha = 0.6f)
-                            else -> CyberneticTertiary.copy(alpha = 0.4f)
-                        }
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                // Кнопка и статус проверки зрение (Vision) - компактно и прямо под моделями
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(
+                        onClick = {
+                            isTestingVision = true
+                            visionCheckResult = null
+                            coroutineScope.launch {
+                                val res = onTestVision(
+                                    selectedProvider,
+                                    enteredBaseUrl,
+                                    enteredApiKey,
+                                    enteredModelId
+                                )
+                                isTestingVision = false
+                                visionCheckResult = res
+                                isVerified = res.isSuccess
+                            }
+                        },
+                        enabled = !isTestingVision && enteredModelId.isNotBlank() && enteredBaseUrl.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isVerified) CyberneticSecondary else CyberneticPrimary,
+                            contentColor = CyberneticOnPrimary
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        if (isTestingVision) {
+                            CircularProgressIndicator(
+                                color = CyberneticOnPrimary,
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Тестирование Vision (1x1 probe)...", fontSize = 12.sp)
+                        } else {
+                            Icon(
+                                imageVector = if (isVerified) Icons.Default.CheckCircle else Icons.Default.Visibility,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isVerified) "Vision подтвержден (повторить)" else "Проверить модель на Vision",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    val resultMsg = when {
+                        isVerified -> visionCheckResult?.getOrNull()?.message ?: "Модель успешно подтвердила поддержку зрения (200 OK)."
+                        visionCheckResult?.isFailure == true -> visionCheckResult?.exceptionOrNull()?.message ?: "Модель не поддерживает зрение."
+                        else -> null
+                    }
+
+                    if (resultMsg != null) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (isVerified) CyberneticSecondary.copy(alpha = 0.12f) else CyberneticError.copy(alpha = 0.12f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isVerified) CyberneticSecondary.copy(alpha = 0.4f) else CyberneticError.copy(alpha = 0.4f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Icon(
-                                    imageVector = when {
-                                        isVerified -> Icons.Default.CheckCircle
-                                        visionCheckResult?.isFailure == true -> Icons.Default.ErrorOutline
-                                        else -> Icons.Default.Visibility
-                                    },
+                                    imageVector = if (isVerified) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
                                     contentDescription = null,
-                                    tint = when {
-                                        isVerified -> CyberneticSecondary
-                                        visionCheckResult?.isFailure == true -> CyberneticError
-                                        else -> CyberneticTertiary
-                                    },
-                                    modifier = Modifier.size(18.dp)
+                                    tint = if (isVerified) CyberneticSecondary else CyberneticError,
+                                    modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    text = "ПРОВЕРКА VISION",
-                                    color = when {
-                                        isVerified -> CyberneticSecondary
-                                        visionCheckResult?.isFailure == true -> CyberneticError
-                                        else -> CyberneticTertiary
-                                    },
+                                    text = resultMsg,
+                                    color = if (isVerified) CyberneticSecondary else CyberneticError,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            if (isVerified) {
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = CyberneticSecondary.copy(alpha = 0.2f)
-                                ) {
-                                    Text(
-                                        text = "ПОДТВЕРЖДЕНО",
-                                        color = CyberneticSecondary,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        Text(
-                            text = when {
-                                isVerified -> visionCheckResult?.getOrNull()?.message ?: "Модель успешно подтвердила поддержку зрения (200 OK)."
-                                visionCheckResult?.isFailure == true -> visionCheckResult?.exceptionOrNull()?.message ?: "Модель не поддерживает зрение."
-                                else -> "Перед сохранением необходимо обязательно протестировать модель на поддержку изображений (1x1 probe)."
-                            },
-                            color = when {
-                                isVerified -> CyberneticSecondary
-                                visionCheckResult?.isFailure == true -> CyberneticError
-                                else -> CyberneticOnSurfaceVariant
-                            },
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        )
-
-                        Button(
-                            onClick = {
-                                isTestingVision = true
-                                visionCheckResult = null
-                                coroutineScope.launch {
-                                    val res = onTestVision(
-                                        selectedProvider,
-                                        enteredBaseUrl,
-                                        enteredApiKey,
-                                        enteredModelId
-                                    )
-                                    isTestingVision = false
-                                    visionCheckResult = res
-                                    isVerified = res.isSuccess
-                                }
-                            },
-                            enabled = !isTestingVision && enteredModelId.isNotBlank() && enteredBaseUrl.isNotBlank(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isVerified) CyberneticSecondary else CyberneticPrimary,
-                                contentColor = CyberneticOnPrimary
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(38.dp)
-                        ) {
-                            if (isTestingVision) {
-                                CircularProgressIndicator(
-                                    color = CyberneticOnPrimary,
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Тестирование зрение модели (1x1 probe)...", fontSize = 12.sp)
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (isVerified) "Повторить проверку Vision" else "Проверить модель на Vision",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
+                                    lineHeight = 14.sp
                                 )
                             }
                         }

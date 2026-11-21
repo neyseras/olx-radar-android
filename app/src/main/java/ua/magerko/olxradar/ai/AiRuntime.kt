@@ -137,9 +137,12 @@ object AiRuntime {
             val isApproved = status.equals("APPROVED", ignoreCase = true) || status.equals("MATCH", ignoreCase = true)
             val isRejected = status.equals("REJECTED", ignoreCase = true)
             val newHistory = (listOf(finishedItem) + cur.history).take(60)
+            val currentListingId = cur.currentItem?.listingId ?: 0L
+            val nextQueue = if (currentListingId != 0L) cur.queue.filterNot { it.listingId == currentListingId } else cur.queue
             cur.copy(
                 isBusy = false,
                 currentItem = null,
+                queue = nextQueue,
                 lastFinished = Finished(
                     title = cur.title ?: "",
                     radar = cur.radar,
@@ -174,9 +177,12 @@ object AiRuntime {
                 finishedAtMs = now
             )
             val newHistory = (listOf(errorItem) + cur.history).take(60)
+            val currentListingId = cur.currentItem?.listingId ?: 0L
+            val nextQueue = if (currentListingId != 0L) cur.queue.filterNot { it.listingId == currentListingId } else cur.queue
             cur.copy(
                 isBusy = false,
                 currentItem = null,
+                queue = nextQueue,
                 lastFinished = Finished(
                     title = cur.title ?: "",
                     radar = cur.radar,
@@ -251,7 +257,12 @@ object AiRuntime {
         var removed: LiveAiItem? = null
         _activity.update { cur ->
             removed = cur.queue.find { it.listingId == listingId }
-            cur.copy(queue = cur.queue.filterNot { it.listingId == listingId })
+            val isCurrent = cur.currentItem?.listingId == listingId
+            cur.copy(
+                queue = cur.queue.filterNot { it.listingId == listingId },
+                currentItem = if (isCurrent) null else cur.currentItem,
+                isBusy = if (isCurrent) false else cur.isBusy
+            )
         }
         return removed
     }

@@ -131,11 +131,11 @@ object AiQueueManager {
 
         AppLog.i(TAG, "Очередь ИИ: начало обработки '${listing.title.take(50)}' (радар '${watch.title}')")
 
+        // Извлекаем из очереди ожидания сразу перед началом анализа
+        AiRuntime.dequeue(listing.id)
+
         // Запускаем анализ без 2-минутного таймаута
         val eval = eng.evaluateListingDirect(listing, watch)
-
-        // Извлекаем из очереди в AiRuntime
-        AiRuntime.dequeue(listing.id)
 
         // Проверяем, не удалил ли пользователь лот, пока шёл анализ нейросетью
         if (cancelledListingIds.remove(listing.id)) {
