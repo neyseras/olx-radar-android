@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.withPermit
 import ua.magerko.olxradar.R
 import ua.magerko.olxradar.data.model.Finding
 import ua.magerko.olxradar.ui.MainActivity
+import ua.magerko.olxradar.util.AppLog
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -27,9 +28,14 @@ import java.util.Locale
 class NotificationHelper(private val context: Context) {
 
     companion object {
+        private const val TAG = "NotificationHelper"
         const val SERVICE_CHANNEL_ID = "olx_radar_service"
         const val ALERTS_CHANNEL_ID = "olx_radar_alerts"
         const val SERVICE_NOTIFICATION_ID = 1001
+        private const val ALERT_DEDUPLICATION_WINDOW_MS = 10 * 60 * 1000L // 10 минут
+
+        // Глобальный кэш недавно отправленных уведомлений для предотвращения дублей
+        private val recentAlertsCache = java.util.concurrent.ConcurrentHashMap<Long, Long>()
 
         /**
          * B7: Stable hash from 64-bit Long to 32-bit Int without truncating.
@@ -150,6 +156,18 @@ class NotificationHelper(private val context: Context) {
      * B7: ID and requestCode using stable 64->32 bit hash. Grouped by watchId.
      */
     fun sendAlertNotification(finding: Finding, bitmap: Bitmap? = null) {
+        val now = System.currentTimeMillis()
+        val lastSent = recentAlertsCache[finding.listingId]
+        if (lastSent != null && (now - lastSent) < ALERT_DEDUPLICATION_WINDOW_MS) {
+            AppLog.i(TAG, "Пропуск дублирующего уведомления для лота ${finding.listingId} (уже отправлено ${(now - lastSent)/1000}с назад)")
+            return
+        }
+        recentAlertsCache[finding.listingId] = now
+        if (recentAlertsCache.size > 300) {
+            val cutoff = now - ALERT_DEDUPLICATION_WINDOW_MS
+            recentAlertsCache.entries.removeIf { it.value < cutoff }
+        }
+
         val notifId = toNotificationId(finding.listingId)
         val requestCode = notifId
         val groupKey = "watch_group_${finding.watchId}"
@@ -216,6 +234,7 @@ class NotificationHelper(private val context: Context) {
             .setContentIntent(pIntent)
             .setAutoCancel(true)
             .setGroup(groupKey)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .addAction(R.drawable.ic_open, context.getString(R.string.action_open_olx), pBrowserIntent)
@@ -248,6 +267,7 @@ class NotificationHelper(private val context: Context) {
             .setContentText(context.getString(R.string.notif_group_summary))
             .setGroup(groupKey)
             .setGroupSummary(true)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setAutoCancel(true)
             .setContentIntent(pSummaryIntent)
             .build()

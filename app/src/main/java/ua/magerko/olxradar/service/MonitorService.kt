@@ -251,7 +251,7 @@ class MonitorService : Service() {
             if (RadarState.status.value.isPaused) return
             val listings = OlxParser.parseListings(rawJson)
 
-            val seenIds = db.seenItemDao().getSeenIds(watch.id).toSet()
+            val seenIds = db.seenItemDao().getSeenIds(watch.id).toMutableSet()
 
             // B2: Bug "First lot swallowed" fixed:
             // Use watch.initialized flag instead of seenIds.isEmpty().
@@ -266,6 +266,7 @@ class MonitorService : Service() {
                         lastPushedAt = listing.pushedAt,
                         lastPrice = listing.price
                     )
+                    seenIds.add(listing.id)
                     if (initialSaved < 15 && OlxParser.matchesWatch(listing, watch)) {
                         val finding = Finding(
                             watchId = watch.id,
@@ -302,10 +303,11 @@ class MonitorService : Service() {
                     val isNew = listing.id !in seenIds
                     val isPushup = if (!isNew && watch.notifyMode == "new_pushup" && listing.pushedAt != null) {
                         val lastPushed = db.seenItemDao().getLastPushedAt(watch.id, listing.id)
-                        lastPushed == null || listing.pushedAt > lastPushed
+                        lastPushed != null && listing.pushedAt > lastPushed
                     } else false
 
                     if (isNew || isPushup) {
+                        seenIds.add(listing.id)
                         val reason = if (isNew) "new" else "pushup"
 
                         // Multi-stage filtering: evaluate with AI filter engine
@@ -321,31 +323,57 @@ class MonitorService : Service() {
                         )
 
                         if (aiEval.shouldSaveFinding) {
-                            val finding = Finding(
-                                watchId = watch.id,
-                                listingId = listing.id,
-                                title = listing.title,
-                                description = listing.description,
-                                price = listing.price,
-                                currency = listing.currency,
-                                cityName = listing.cityName,
-                                url = listing.url,
-                                photoUrl = listing.photoUrl,
-                                reason = reason,
-                                createdAt = listing.createdAt,
-                                foundAt = now,
-                                isRead = false,
-                                conditionScore = OlxParser.conditionScore(listing),
-                                aiScore = aiEval.result?.confidence,
-                                aiStatus = aiEval.status,
-                                aiProduct = aiEval.result?.detectedProduct,
-                                aiModel = aiEval.result?.detectedModel,
-                                aiPhotoMatch = aiEval.result?.photoMatchesTitle,
-                                aiReasons = aiEval.result?.reasons?.joinToString("\n• ", prefix = "• "),
-                                aiRejectReason = aiEval.result?.rejectReason,
-                                aiDetailsJson = aiEval.result?.toJsonString(),
-                                isDelivery = listing.isDelivery
-                            )
+                            val existing = db.findingDao().getFindingByListingId(listing.id)
+                            val finding = if (existing != null) {
+                                existing.copy(
+                                    watchId = watch.id,
+                                    title = listing.title,
+                                    description = listing.description,
+                                    price = listing.price,
+                                    currency = listing.currency,
+                                    cityName = listing.cityName,
+                                    url = listing.url,
+                                    photoUrl = listing.photoUrl,
+                                    reason = reason,
+                                    createdAt = listing.createdAt,
+                                    conditionScore = OlxParser.conditionScore(listing),
+                                    aiScore = aiEval.result?.confidence,
+                                    aiStatus = aiEval.status,
+                                    aiProduct = aiEval.result?.detectedProduct,
+                                    aiModel = aiEval.result?.detectedModel,
+                                    aiPhotoMatch = aiEval.result?.photoMatchesTitle,
+                                    aiReasons = aiEval.result?.reasons?.joinToString("\n• ", prefix = "• "),
+                                    aiRejectReason = aiEval.result?.rejectReason,
+                                    aiDetailsJson = aiEval.result?.toJsonString(),
+                                    isDelivery = listing.isDelivery
+                                )
+                            } else {
+                                Finding(
+                                    watchId = watch.id,
+                                    listingId = listing.id,
+                                    title = listing.title,
+                                    description = listing.description,
+                                    price = listing.price,
+                                    currency = listing.currency,
+                                    cityName = listing.cityName,
+                                    url = listing.url,
+                                    photoUrl = listing.photoUrl,
+                                    reason = reason,
+                                    createdAt = listing.createdAt,
+                                    foundAt = now,
+                                    isRead = false,
+                                    conditionScore = OlxParser.conditionScore(listing),
+                                    aiScore = aiEval.result?.confidence,
+                                    aiStatus = aiEval.status,
+                                    aiProduct = aiEval.result?.detectedProduct,
+                                    aiModel = aiEval.result?.detectedModel,
+                                    aiPhotoMatch = aiEval.result?.photoMatchesTitle,
+                                    aiReasons = aiEval.result?.reasons?.joinToString("\n• ", prefix = "• "),
+                                    aiRejectReason = aiEval.result?.rejectReason,
+                                    aiDetailsJson = aiEval.result?.toJsonString(),
+                                    isDelivery = listing.isDelivery
+                                )
+                            }
                             val insertedId = db.findingDao().insertFinding(finding)
                             val savedFinding = if (finding.id == 0L) finding.copy(id = insertedId) else finding
 

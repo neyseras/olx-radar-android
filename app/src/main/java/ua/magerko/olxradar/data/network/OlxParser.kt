@@ -73,7 +73,7 @@ object OlxParser {
                 results.add(listing)
             }
         }
-        return results
+        return results.distinctBy { it.id }
     }
 
     private fun parseSingleListing(obj: JSONObject): Listing? {
