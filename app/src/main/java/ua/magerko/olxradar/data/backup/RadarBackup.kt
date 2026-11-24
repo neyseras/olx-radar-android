@@ -48,6 +48,16 @@ object RadarBackup {
     private const val FORMAT_V2 = 2
     private const val FORMAT_V3 = 3
 
+    /**
+     * Генерирует уникальное имя файла бэкапа с датой и временем до миллисекунд:
+     * olx_radar_backup_YYYY-MM-DD_HH-mm-ss_SSS.json (или .jsonl)
+     */
+    fun generateBackupFileName(extension: String = "json", timestamp: Long = System.currentTimeMillis()): String {
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss_SSS", java.util.Locale.US)
+        val timeStr = sdf.format(java.util.Date(timestamp))
+        return "olx_radar_backup_$timeStr.$extension"
+    }
+
     data class FullBackupData(
         val format: Int,
         val exportedAt: Long,

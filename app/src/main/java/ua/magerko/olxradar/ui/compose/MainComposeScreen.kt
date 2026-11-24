@@ -422,7 +422,7 @@ fun MainComposeScreen(
                                                     onTestWatch = { watch ->
                                                         watchesViewModel.checkListings(watch)
                                                     },
-                                                    onExportBackup = { watchesViewModel.buildBackupJson() },
+                                                    onExportBackup = { val res = statusViewModel.runBackupNow(); if (res.success) res.locationDescription else error(res.error ?: "Ошибка бэкапа") },
                                                     onImportBackup = { json ->
                                                         val res = watchesViewModel.importBackupJson(json)
                                                         statusViewModel.refreshSettingsState()

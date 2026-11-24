@@ -84,8 +84,9 @@ object PersistentStorageManager {
     }
 
     /**
-     * Немедленно записывает полный бэкап (радары + настройки + избранные/находки)
-     * в общую папку Documents/OLXRadar (переживает удаление приложения) и в SAF-папку, если выбрана.
+     * Записывает полный бэкап (радары + настройки + избранные/находки + черный список)
+     * ровно в ОДИН файл с датой и временем (сек + мс) в общую папку Documents/OLXRadar:
+     * olx_radar_backup_YYYY-MM-DD_HH-mm-ss_SSS.json
      */
     suspend fun performFullBackupNow(context: Context): BackupWriteResult = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
@@ -93,6 +94,9 @@ object PersistentStorageManager {
         val snap = AppPreferences.state.value
 
         try {
+            val now = System.currentTimeMillis()
+            val fileName = RadarBackup.generateBackupFileName("json", now)
+
             val db = AppDatabase.getInstance(appContext)
             val watches = db.watchDao().getAllWatches()
             val findings = if (snap.backupIncludeFindings) {
@@ -110,91 +114,36 @@ object PersistentStorageManager {
                 blockedSellers = blockedSellers,
                 priceHistory = priceHistory,
                 includeFindings = snap.backupIncludeFindings,
-                includeApiKeys = snap.backupIncludeApiKeys
+                includeApiKeys = snap.backupIncludeApiKeys,
+                exportedAt = now
             )
-            val fullJsonl = RadarBackup.toFullBackupJsonl(
-                context = appContext,
-                watches = watches,
-                findings = findings,
-                blockedSellers = blockedSellers,
-                priceHistory = priceHistory,
-                includeFindings = snap.backupIncludeFindings,
-                includeApiKeys = snap.backupIncludeApiKeys
-            )
-            val radarsOnlyJson = RadarBackup.toJson(watches)
 
-            // 1. Всегда держим внутреннюю копию (на случай hasFragileUserData=true)
+            // 1. Внутренняя актуальная копия на случай hasFragileUserData=true
             runCatching {
-                File(appContext.filesDir, RadarBackup.UNIFIED_BACKUP_FILE_NAME).writeText(fullJson, Charsets.UTF_8)
-                File(appContext.filesDir, RadarBackup.UNIFIED_BACKUP_JSONL_FILE_NAME).writeText(fullJsonl, Charsets.UTF_8)
-                File(appContext.filesDir, RadarBackup.LEGACY_FULL_BACKUP_FILE_NAME).writeText(fullJson, Charsets.UTF_8)
-                File(appContext.filesDir, RadarBackup.DEFAULT_FILE_NAME).writeText(radarsOnlyJson, Charsets.UTF_8)
+                File(appContext.filesDir, "olx_radar_backup_latest.json").writeText(fullJson, Charsets.UTF_8)
             }
 
-            val destinations = mutableListOf<String>()
-            var lastErr: String? = null
-
-            // 2. Пишем в выбранную пользователем SAF-папку (только если grant реально активен)
-            val safTreeStr = snap.safBackupTreeUri
-            if (!safTreeStr.isNullOrBlank()) {
-                if (isSafTreeAccessible(appContext, safTreeStr)) {
-                    val treeUri = runCatching { Uri.parse(safTreeStr) }.getOrNull()
-                    if (treeUri != null) {
-                        val safOk = writeToSafTree(appContext, treeUri, RadarBackup.UNIFIED_BACKUP_FILE_NAME, "application/json", fullJson) &&
-                            writeToSafTree(appContext, treeUri, RadarBackup.UNIFIED_BACKUP_JSONL_FILE_NAME, "text/plain", fullJsonl) &&
-                            writeToSafTree(appContext, treeUri, RadarBackup.LEGACY_FULL_BACKUP_FILE_NAME, "application/json", fullJson)
-                        if (safOk) {
-                            destinations += "SAF-папка"
-                        }
-                    }
-                } else {
-                    // Сбрасываем устаревший/отозванный URI после переустановки
-                    AppPreferences.setSafBackupTreeUri(appContext, null)
-                }
-            }
-
-            // 3. Пишем в публичную папку Documents/OLXRadar (переживает удаление приложения без спецразрешений на Android 10+)
+            // 2. Пишем ровно ОДИН файл в публичную папку Documents/OLXRadar
             val pubResult = writeToPublicDocuments(
                 context = appContext,
-                fileName = RadarBackup.UNIFIED_BACKUP_FILE_NAME,
+                fileName = fileName,
                 mimeType = "application/json",
                 content = fullJson
             )
-            writeToPublicDocuments(
-                context = appContext,
-                fileName = RadarBackup.UNIFIED_BACKUP_JSONL_FILE_NAME,
-                mimeType = "text/plain",
-                content = fullJsonl
-            )
-            writeToPublicDocuments(
-                context = appContext,
-                fileName = RadarBackup.LEGACY_FULL_BACKUP_FILE_NAME,
-                mimeType = "application/json",
-                content = fullJson
-            )
-            writeToPublicDocuments(
-                context = appContext,
-                fileName = RadarBackup.DEFAULT_FILE_NAME,
-                mimeType = "application/json",
-                content = radarsOnlyJson
-            )
-            if (pubResult.isSuccess) {
-                destinations += PUBLIC_DISPLAY_PATH
-            } else {
-                lastErr = pubResult.exceptionOrNull()?.message
-            }
 
-            val now = System.currentTimeMillis()
-            if (destinations.isNotEmpty()) {
-                val desc = destinations.joinToString(" + ")
-                AppPreferences.recordBackupResult(appContext, now, "Сохранено в $desc")
+            // 3. Удаляем старые бэкапы, оставляя только 5 самых свежих
+            cleanupOldBackups(appContext, maxToKeep = 5)
+
+            if (pubResult.isSuccess) {
+                val desc = "$PUBLIC_DISPLAY_PATH/$fileName"
+                AppPreferences.recordBackupResult(appContext, now, "Сохранено: $fileName")
                 BackupWriteResult(
                     success = true,
                     locationDescription = desc,
                     bytesWritten = fullJson.toByteArray(Charsets.UTF_8).size
                 )
             } else {
-                val errText = lastErr ?: "Нет доступа к общему хранилищу"
+                val errText = pubResult.exceptionOrNull()?.message ?: "Нет доступа к общему хранилищу"
                 AppPreferences.recordBackupResult(appContext, now, "Ошибка: $errText")
                 BackupWriteResult(
                     success = false,
@@ -203,7 +152,7 @@ object PersistentStorageManager {
                 )
             }
         } catch (e: Exception) {
-            AppLog.w(TAG, "Ошибка авто-бэкапа", e)
+            AppLog.w(TAG, "Ошибка бэкапа", e)
             BackupWriteResult(
                 success = false,
                 locationDescription = PUBLIC_DISPLAY_PATH,
@@ -351,50 +300,120 @@ object PersistentStorageManager {
     }
 
     /**
+     * Очищает старые авто-бэкапы в папке Documents/OLXRadar, оставляя только maxToKeep самых свежих.
+     * Также удаляет старые файлы дубликатов (olx-radar-list*, olx_radar_autobackup*).
+     */
+    fun cleanupOldBackups(context: Context, maxToKeep: Int = 5) {
+        // 1. Android < 10 или прямой файловый доступ
+        runCatching {
+            val pubDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), PUBLIC_SUBFOLDER)
+            if (pubDir.exists()) {
+                val files = pubDir.listFiles { f ->
+                    f.name.startsWith("olx_radar_backup_") || f.name.startsWith("olx_radar_autobackup") || f.name.startsWith("olx-radar-list")
+                }?.sortedByDescending { it.lastModified() } ?: emptyList()
+
+                var count = 0
+                for (file in files) {
+                    if (file.name.startsWith("olx-radar-list") || file.name.startsWith("olx_radar_autobackup")) {
+                        runCatching { file.delete() }
+                    } else {
+                        count++
+                        if (count > maxToKeep) {
+                            runCatching { file.delete() }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Android 10+ (MediaStore)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching {
+                val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                val relPath = "${Environment.DIRECTORY_DOCUMENTS}/$PUBLIC_SUBFOLDER/"
+                val projection = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME)
+                val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND (${MediaStore.MediaColumns.DISPLAY_NAME} LIKE 'olx_radar_%' OR ${MediaStore.MediaColumns.DISPLAY_NAME} LIKE 'olx-radar-%')"
+                val args = arrayOf(relPath)
+                val sortOrder = "${MediaStore.MediaColumns.DATE_MODIFIED} DESC, ${MediaStore.MediaColumns._ID} DESC"
+
+                val idsToDelete = mutableListOf<Long>()
+                context.contentResolver.query(collection, projection, selection, args, sortOrder)?.use { cursor ->
+                    var count = 0
+                    while (cursor.moveToNext()) {
+                        val name = cursor.getString(1) ?: ""
+                        if (name.startsWith("olx-radar-list") || name.startsWith("olx_radar_autobackup")) {
+                            idsToDelete.add(cursor.getLong(0))
+                        } else {
+                            count++
+                            if (count > maxToKeep) {
+                                idsToDelete.add(cursor.getLong(0))
+                            }
+                        }
+                    }
+                }
+                for (id in idsToDelete) {
+                    runCatching {
+                        context.contentResolver.delete(ContentUris.withAppendedId(collection, id), null, null)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun readLatestFromMediaStoreDocuments(context: Context): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val relPath = "${Environment.DIRECTORY_DOCUMENTS}/$PUBLIC_SUBFOLDER/"
+        val projection = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME)
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND (${MediaStore.MediaColumns.DISPLAY_NAME} LIKE 'olx_radar_%' OR ${MediaStore.MediaColumns.DISPLAY_NAME} LIKE 'olx-radar-%')"
+        val args = arrayOf(relPath)
+        val sortOrder = "${MediaStore.MediaColumns.DATE_MODIFIED} DESC, ${MediaStore.MediaColumns._ID} DESC"
+        return try {
+            context.contentResolver.query(collection, projection, selection, args, sortOrder)?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
+                    val uri = ContentUris.withAppendedId(collection, id)
+                    val content = runCatching {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                    }.getOrNull()
+                    if (!content.isNullOrBlank() && content.length > 10) {
+                        return content
+                    }
+                }
+                null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
      * Ищет доступный бэкап, оставшийся после предыдущей установки приложения.
+     * Берёт самый свежий файл по дате создания/изменения.
      */
     suspend fun discoverSurvivingBackupJson(context: Context): String? = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
-        val candidates = listOf(
-            RadarBackup.UNIFIED_BACKUP_FILE_NAME,
-            RadarBackup.UNIFIED_BACKUP_JSONL_FILE_NAME,
-            RadarBackup.LEGACY_FULL_BACKUP_FILE_NAME,
-            RadarBackup.DEFAULT_FILE_NAME
-        )
 
-        // 1. Внутренний файл (сохраняется Android при hasFragileUserData=true)
-        for (name in candidates) {
-            val internal = File(appContext.filesDir, name)
-            if (internal.exists() && internal.length() > 10) {
-                runCatching { return@withContext internal.readText(Charsets.UTF_8) }
-            }
+        // 1. Внутренний актуальный файл
+        val internalLatest = File(appContext.filesDir, "olx_radar_backup_latest.json")
+        if (internalLatest.exists() && internalLatest.length() > 10) {
+            runCatching { return@withContext internalLatest.readText(Charsets.UTF_8) }
         }
 
-        // 2. В публичной папке Documents/OLXRadar (прямой доступ на Android <= 10 или для собственных файлов MediaStore)
-        for (name in candidates) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                val pubDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), PUBLIC_SUBFOLDER)
-                val pubFile = File(pubDir, name)
-                if (pubFile.exists() && pubFile.length() > 10) {
-                    runCatching { return@withContext pubFile.readText(Charsets.UTF_8) }
-                }
-            } else {
-                readFromMediaStoreDocuments(appContext, name)?.let {
-                    return@withContext it
+        // 2. В публичной папке Documents/OLXRadar
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            val pubDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), PUBLIC_SUBFOLDER)
+            if (pubDir.exists()) {
+                val files = pubDir.listFiles { f ->
+                    (f.name.startsWith("olx_radar") || f.name.startsWith("olx-radar")) && f.length() > 10
+                }?.sortedByDescending { it.lastModified() }
+                files?.firstOrNull()?.let {
+                    runCatching { return@withContext it.readText(Charsets.UTF_8) }
                 }
             }
-        }
-
-        // 3. В выбранной SAF-папке
-        val safUri = AppPreferences.state.value.safBackupTreeUri
-        if (!safUri.isNullOrBlank() && isSafTreeAccessible(appContext, safUri)) {
-            val parsedTreeUri = runCatching { Uri.parse(safUri) }.getOrNull()
-            if (parsedTreeUri != null) {
-                for (name in candidates) {
-                    readFromSafTree(appContext, parsedTreeUri, name)?.let {
-                        return@withContext it
-                    }
-                }
+        } else {
+            readLatestFromMediaStoreDocuments(appContext)?.let {
+                return@withContext it
             }
         }
 

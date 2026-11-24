@@ -90,24 +90,17 @@ fun RadarsManagementScreen(
     val activeCount = remember(watchesUi) { watchesUi.count { it.watch.isActive } }
     val totalFindings = remember(watchesUi) { watchesUi.sumOf { it.findingsCount } }
 
-    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val json = onExportBackup()
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openOutputStream(uri, "wt")?.use { os ->
-                            os.write(json.toByteArray(Charsets.UTF_8))
-                            os.flush()
-                        } ?: error("Поток записи недоступен")
-                    }
-                    Toast.makeText(context, "Полный бэкап сохранён в файл", Toast.LENGTH_SHORT).show()
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Ошибка сохранения: ${e.message}", Toast.LENGTH_LONG).show()
-                }
+    val handleBackupNow: () -> Unit = {
+        scope.launch {
+            try {
+                val loc = onExportBackup()
+                Toast.makeText(context, "Бэкап сохранён в $loc", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Ошибка бэкапа: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
+
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             scope.launch {
@@ -196,10 +189,10 @@ fun RadarsManagementScreen(
                             )
                         }
                     }
-                    IconButton(onClick = { exportLauncher.launch(RadarBackup.UNIFIED_BACKUP_FILE_NAME) }) {
+                    IconButton(onClick = handleBackupNow) {
                         Icon(
-                            imageVector = Icons.Default.IosShare,
-                            contentDescription = "Экспорт бэкапа",
+                            imageVector = Icons.Default.Backup,
+                            contentDescription = "Создать бэкап",
                             tint = CyberneticOnSurfaceVariant
                         )
                     }

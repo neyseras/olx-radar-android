@@ -150,39 +150,7 @@ fun StatusAiSettingsScreen(
     val aiThoughtLogs by ua.magerko.olxradar.ai.AiThoughtLogger.logsFlow.collectAsState()
     val blockedSellers by statusViewModel.blockedSellers.collectAsState()
 
-    var showExportPasswordDialog by remember { mutableStateOf(false) }
-    var pendingExportPassword by remember { mutableStateOf<String?>(null) }
-    var pendingExportAsJsonl by remember { mutableStateOf(false) }
     var pendingEncryptedBackupJson by remember { mutableStateOf<String?>(null) }
-
-    val exportFullLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) {
-            coroutineScope.launch {
-                try {
-                    val json = statusViewModel.buildFullBackupJson(
-                        password = pendingExportPassword,
-                        asJsonl = pendingExportAsJsonl
-                    )
-                    pendingExportPassword = null
-                    pendingExportAsJsonl = false
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openOutputStream(uri, "wt")?.use { os ->
-                            os.write(json.toByteArray(Charsets.UTF_8))
-                            os.flush()
-                        } ?: error("Поток записи недоступен")
-                    }
-                    Toast.makeText(context, "Полный бэкап экспортирован!", Toast.LENGTH_SHORT).show()
-                } catch (e: Exception) {
-                    pendingExportPassword = null
-                    pendingExportAsJsonl = false
-                    Toast.makeText(context, "Ошибка экспорта: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            }
-        } else {
-            pendingExportPassword = null
-            pendingExportAsJsonl = false
-        }
-    }
 
     val importFullLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -210,26 +178,6 @@ fun StatusAiSettingsScreen(
                 } catch (e: Exception) {
                     Toast.makeText(context, "Ошибка восстановления: ${e.message}", Toast.LENGTH_LONG).show()
                 }
-            }
-        }
-    }
-
-    val safFolderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) {
-            try {
-                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(uri, flags)
-                AppPreferences.setSafBackupTreeUri(context, uri.toString())
-                coroutineScope.launch {
-                    val res = statusViewModel.runBackupNow()
-                    Toast.makeText(
-                        context,
-                        if (res.success) "Папка привязана и бэкап сохранён!" else "Папка привязана (${res.error})",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            } catch (e: Exception) {
-                Toast.makeText(context, "Не удалось закрепить папку: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -439,9 +387,7 @@ fun StatusAiSettingsScreen(
                                 ).show()
                             }
                         },
-                        onPickSafFolder = { safFolderLauncher.launch(null) },
-                        onExportFull = { showExportPasswordDialog = true },
-                        onImportFull = { importFullLauncher.launch(arrayOf("*/*")) },
+                        onImportFull = { importFullLauncher.launch(arrayOf("application/json", "text/*", "*/*")) },
                         onClearAiCache = {
                             statusViewModel.clearAiCacheOnly()
                             Toast.makeText(context, "ИИ-кэш очищен", Toast.LENGTH_SHORT).show()
@@ -505,63 +451,6 @@ fun StatusAiSettingsScreen(
                 TextButton(onClick = { showClearAllDialog = false }) {
                     Text("Отмена", color = CyberneticOnSurfaceVariant)
                 }
-            }
-        )
-    }
-
-    if (showExportPasswordDialog) {
-        var exportPwd by remember { mutableStateOf("") }
-        var exportAsJsonl by remember { mutableStateOf(false) }
-        AlertDialog(
-            onDismissRequest = { showExportPasswordDialog = false },
-            containerColor = CyberneticModalSurface,
-            title = { Text("Экспорт резервной копии", color = CyberneticOnSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Оставьте пароль пустым для обычного файла, или введите пароль для шифрования AES-256 (защищает API-ключи и данные).",
-                        color = CyberneticOnSurfaceVariant,
-                        fontSize = 12.sp
-                    )
-                    OutlinedTextField(
-                        value = exportPwd,
-                        onValueChange = { exportPwd = it },
-                        label = { Text("Пароль (необязательно)") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Checkbox(
-                            checked = exportAsJsonl,
-                            onCheckedChange = { exportAsJsonl = it }
-                        )
-                        Text(
-                            text = "Формат JSON Lines (.jsonl)",
-                            color = CyberneticOnSurface,
-                            fontSize = 12.sp
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    pendingExportPassword = exportPwd.trim().takeIf { it.isNotEmpty() }
-                    pendingExportAsJsonl = exportAsJsonl
-                    showExportPasswordDialog = false
-                    exportFullLauncher.launch(
-                        if (exportAsJsonl) RadarBackup.UNIFIED_BACKUP_JSONL_FILE_NAME
-                        else RadarBackup.UNIFIED_BACKUP_FILE_NAME
-                    )
-                }) {
-                    Text(if (exportPwd.isBlank()) (if (exportAsJsonl) "Экспорт JSONL" else "Экспорт JSON") else "Зашифровать и сохранить")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showExportPasswordDialog = false }) { Text("Отмена") }
             }
         )
     }
@@ -1420,8 +1309,6 @@ private fun StorageAndUninstallBackupCard(
     totalDbFindings: Int,
     nowMs: Long,
     onBackupNow: () -> Unit,
-    onPickSafFolder: () -> Unit,
-    onExportFull: () -> Unit,
     onImportFull: () -> Unit,
     onClearAiCache: () -> Unit,
     onClearRejected: () -> Unit,
@@ -1460,7 +1347,7 @@ private fun StorageAndUninstallBackupCard(
             }
 
             Text(
-                text = "Авто-бэкап сохраняет радары, настройки и избранное в общедоступную папку Documents/OLXRadar/ (и привязанную SAF-папку), а Android также предлагает «Сохранить данные» при удалении.",
+                text = "Бэкап сохраняет радары, настройки, избранное и чёрный список в 1 файл с датой и временем (сек + мс) в Documents/OLXRadar/.",
                 color = CyberneticOnSurfaceVariant,
                 fontSize = 11.sp,
                 lineHeight = 16.sp
@@ -1511,9 +1398,6 @@ private fun StorageAndUninstallBackupCard(
                     val lastAtText = if (appSettings.lastAutoBackupAt > 0L) {
                         CachedFormatters.formatShortAgo(appSettings.lastAutoBackupAt, nowMs)
                     } else "ещё не создавался"
-                    val safConnected = remember(appSettings.safBackupTreeUri) {
-                        PersistentStorageManager.isSafTreeAccessible(context, appSettings.safBackupTreeUri)
-                    }
                     Text(
                         text = "Последний авто-бэкап: $lastAtText",
                         color = CyberneticOnSurface,
@@ -1528,16 +1412,8 @@ private fun StorageAndUninstallBackupCard(
                         )
                     }
                     Text(
-                        text = when {
-                            safConnected -> "SAF-папка подключена ✓"
-                            !appSettings.safBackupTreeUri.isNullOrBlank() -> "Доступ к SAF-папке утрачен — выберите папку снова"
-                            else -> "SAF-папка не выбрана (используется Documents/OLXRadar)"
-                        },
-                        color = when {
-                            safConnected -> CyberneticSecondary
-                            !appSettings.safBackupTreeUri.isNullOrBlank() -> CyberneticError
-                            else -> CyberneticOutline
-                        },
+                        text = "Хранилище: Documents/OLXRadar/ (хранятся 5 последних копий)",
+                        color = CyberneticOutline,
                         fontSize = 10.sp
                     )
                 }
@@ -1555,35 +1431,9 @@ private fun StorageAndUninstallBackupCard(
                 ) {
                     Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Сохранить", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("Создать бэкап", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
 
-                OutlinedButton(
-                    onClick = onPickSafFolder,
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.CreateNewFolder, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Выбрать папку", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onExportFull,
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.IosShare, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Экспорт JSON", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
                 OutlinedButton(
                     onClick = onImportFull,
                     shape = RoundedCornerShape(10.dp),
