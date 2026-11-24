@@ -127,11 +127,14 @@ fun MainComposeScreen(
                     statusViewModel.refreshSettingsState()
                     survivingBackup = null
                     backupBannerDismissed = true
-                    Toast.makeText(
-                        context,
-                        "Восстановлено радаров: ${res.first}",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    val summary = buildString {
+                        append("Бэкап загружен: радаров +${res.watchesImported}")
+                        if (res.watchesSkipped > 0) append(" (пропущено: ${res.watchesSkipped})")
+                        if (res.findingsImported > 0) append(", находок: +${res.findingsImported}")
+                        if (res.blockedSellersImported > 0) append(", продавцов: +${res.blockedSellersImported}")
+                        if (res.settingsApplied) append(", настройки применены")
+                    }
+                    Toast.makeText(context, summary, Toast.LENGTH_LONG).show()
                 } catch (e: Exception) {
                     Toast.makeText(context, "Ошибка восстановления: ${e.message}", Toast.LENGTH_LONG).show()
                 }

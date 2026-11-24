@@ -61,7 +61,7 @@ fun RadarsManagementScreen(
     onSaveWatch: (Watch) -> Unit,
     onTestWatch: (suspend (Watch) -> Result<List<Listing>>)? = null,
     onExportBackup: suspend () -> String,
-    onImportBackup: suspend (String) -> Pair<Int, Int>
+    onImportBackup: suspend (String) -> ua.magerko.olxradar.data.backup.PersistentStorageManager.RestoreResult
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -101,7 +101,7 @@ fun RadarsManagementScreen(
                             os.flush()
                         } ?: error("Поток записи недоступен")
                     }
-                    Toast.makeText(context, "Список радаров сохранён", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Полный бэкап сохранён в файл", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
                     Toast.makeText(context, "Ошибка сохранения: ${e.message}", Toast.LENGTH_LONG).show()
                 }
@@ -117,13 +117,15 @@ fun RadarsManagementScreen(
                             it.readBytes().toString(Charsets.UTF_8)
                         } ?: error("Поток чтения недоступен")
                     }
-                    val (imported, skipped) = onImportBackup(json)
-                    Toast.makeText(
-                        context,
-                        if (imported == 0 && skipped == 0) "Файл не содержит радаров"
-                        else "Импортировано: $imported · пропущено дубликатов: $skipped",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    val res = onImportBackup(json)
+                    val summary = buildString {
+                        append("Бэкап загружен: радаров +${res.watchesImported}")
+                        if (res.watchesSkipped > 0) append(" (пропущено: ${res.watchesSkipped})")
+                        if (res.findingsImported > 0) append(", находок: +${res.findingsImported}")
+                        if (res.blockedSellersImported > 0) append(", продавцов: +${res.blockedSellersImported}")
+                        if (res.settingsApplied) append(", настройки применены")
+                    }
+                    Toast.makeText(context, summary, Toast.LENGTH_LONG).show()
                 } catch (e: Exception) {
                     Toast.makeText(context, "Не удалось прочитать файл: ${e.message}", Toast.LENGTH_LONG).show()
                 }
@@ -194,17 +196,17 @@ fun RadarsManagementScreen(
                             )
                         }
                     }
-                    IconButton(onClick = { exportLauncher.launch(RadarBackup.DEFAULT_FILE_NAME) }) {
+                    IconButton(onClick = { exportLauncher.launch(RadarBackup.UNIFIED_BACKUP_FILE_NAME) }) {
                         Icon(
                             imageVector = Icons.Default.IosShare,
-                            contentDescription = "Экспорт радаров",
+                            contentDescription = "Экспорт бэкапа",
                             tint = CyberneticOnSurfaceVariant
                         )
                     }
                     IconButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) {
                         Icon(
                             imageVector = Icons.Default.FileDownload,
-                            contentDescription = "Импорт радаров",
+                            contentDescription = "Импорт бэкапа",
                             tint = CyberneticOnSurfaceVariant
                         )
                     }

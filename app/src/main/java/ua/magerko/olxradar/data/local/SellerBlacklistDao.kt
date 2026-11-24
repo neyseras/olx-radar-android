@@ -13,6 +13,9 @@ interface SellerBlacklistDao {
     @Query("SELECT * FROM seller_blacklist ORDER BY added_at DESC")
     fun getAllFlow(): Flow<List<SellerBlacklist>>
 
+    @Query("SELECT * FROM seller_blacklist ORDER BY added_at DESC")
+    suspend fun getAll(): List<SellerBlacklist>
+
     @Query("SELECT seller_key FROM seller_blacklist")
     fun getBlockedKeysFlow(): Flow<List<String>>
 

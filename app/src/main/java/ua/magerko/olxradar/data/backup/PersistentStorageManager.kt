@@ -48,7 +48,9 @@ object PersistentStorageManager {
         val watchesImported: Int,
         val watchesSkipped: Int,
         val findingsImported: Int,
-        val settingsApplied: Boolean
+        val settingsApplied: Boolean,
+        val blockedSellersImported: Int = 0,
+        val priceHistoryImported: Int = 0
     )
 
     fun isSafTreeAccessible(context: Context, uriStr: String?): Boolean {
@@ -98,11 +100,24 @@ object PersistentStorageManager {
             } else {
                 emptyList()
             }
+            val blockedSellers = db.sellerBlacklistDao().getAll()
+            val priceHistory = db.priceHistoryDao().getRecent(500)
 
             val fullJson = RadarBackup.toFullBackupJson(
                 context = appContext,
                 watches = watches,
                 findings = findings,
+                blockedSellers = blockedSellers,
+                priceHistory = priceHistory,
+                includeFindings = snap.backupIncludeFindings,
+                includeApiKeys = snap.backupIncludeApiKeys
+            )
+            val fullJsonl = RadarBackup.toFullBackupJsonl(
+                context = appContext,
+                watches = watches,
+                findings = findings,
+                blockedSellers = blockedSellers,
+                priceHistory = priceHistory,
                 includeFindings = snap.backupIncludeFindings,
                 includeApiKeys = snap.backupIncludeApiKeys
             )
@@ -110,7 +125,9 @@ object PersistentStorageManager {
 
             // 1. Всегда держим внутреннюю копию (на случай hasFragileUserData=true)
             runCatching {
-                File(appContext.filesDir, RadarBackup.FULL_BACKUP_FILE_NAME).writeText(fullJson, Charsets.UTF_8)
+                File(appContext.filesDir, RadarBackup.UNIFIED_BACKUP_FILE_NAME).writeText(fullJson, Charsets.UTF_8)
+                File(appContext.filesDir, RadarBackup.UNIFIED_BACKUP_JSONL_FILE_NAME).writeText(fullJsonl, Charsets.UTF_8)
+                File(appContext.filesDir, RadarBackup.LEGACY_FULL_BACKUP_FILE_NAME).writeText(fullJson, Charsets.UTF_8)
                 File(appContext.filesDir, RadarBackup.DEFAULT_FILE_NAME).writeText(radarsOnlyJson, Charsets.UTF_8)
             }
 
@@ -123,8 +140,9 @@ object PersistentStorageManager {
                 if (isSafTreeAccessible(appContext, safTreeStr)) {
                     val treeUri = runCatching { Uri.parse(safTreeStr) }.getOrNull()
                     if (treeUri != null) {
-                        val safOk = writeToSafTree(appContext, treeUri, RadarBackup.FULL_BACKUP_FILE_NAME, "application/json", fullJson) &&
-                            writeToSafTree(appContext, treeUri, RadarBackup.DEFAULT_FILE_NAME, "application/octet-stream", radarsOnlyJson)
+                        val safOk = writeToSafTree(appContext, treeUri, RadarBackup.UNIFIED_BACKUP_FILE_NAME, "application/json", fullJson) &&
+                            writeToSafTree(appContext, treeUri, RadarBackup.UNIFIED_BACKUP_JSONL_FILE_NAME, "text/plain", fullJsonl) &&
+                            writeToSafTree(appContext, treeUri, RadarBackup.LEGACY_FULL_BACKUP_FILE_NAME, "application/json", fullJson)
                         if (safOk) {
                             destinations += "SAF-папка"
                         }
@@ -138,7 +156,19 @@ object PersistentStorageManager {
             // 3. Пишем в публичную папку Documents/OLXRadar (переживает удаление приложения без спецразрешений на Android 10+)
             val pubResult = writeToPublicDocuments(
                 context = appContext,
-                fileName = RadarBackup.FULL_BACKUP_FILE_NAME,
+                fileName = RadarBackup.UNIFIED_BACKUP_FILE_NAME,
+                mimeType = "application/json",
+                content = fullJson
+            )
+            writeToPublicDocuments(
+                context = appContext,
+                fileName = RadarBackup.UNIFIED_BACKUP_JSONL_FILE_NAME,
+                mimeType = "text/plain",
+                content = fullJsonl
+            )
+            writeToPublicDocuments(
+                context = appContext,
+                fileName = RadarBackup.LEGACY_FULL_BACKUP_FILE_NAME,
                 mimeType = "application/json",
                 content = fullJson
             )
@@ -290,11 +320,33 @@ object PersistentStorageManager {
             settingsApplied = true
         }
 
+        var importedSellers = 0
+        if (parsed.blockedSellers.isNotEmpty()) {
+            val sellerDao = db.sellerBlacklistDao()
+            for (s in parsed.blockedSellers) {
+                sellerDao.upsert(s)
+                importedSellers++
+            }
+        }
+
+        var importedPriceHistory = 0
+        if (parsed.priceHistory.isNotEmpty()) {
+            val priceHistoryDao = db.priceHistoryDao()
+            val fallbackWatchId = watchDao.getAllWatches().firstOrNull()?.id ?: 0L
+            for (ph in parsed.priceHistory) {
+                val mappedWatchId = oldToNewWatchId[ph.watchId] ?: fallbackWatchId
+                priceHistoryDao.insert(ph.copy(id = 0L, watchId = mappedWatchId))
+                importedPriceHistory++
+            }
+        }
+
         RestoreResult(
             watchesImported = importedWatches,
             watchesSkipped = skippedWatches,
             findingsImported = importedFindings,
-            settingsApplied = settingsApplied
+            settingsApplied = settingsApplied,
+            blockedSellersImported = importedSellers,
+            priceHistoryImported = importedPriceHistory
         )
     }
 
@@ -303,32 +355,45 @@ object PersistentStorageManager {
      */
     suspend fun discoverSurvivingBackupJson(context: Context): String? = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
+        val candidates = listOf(
+            RadarBackup.UNIFIED_BACKUP_FILE_NAME,
+            RadarBackup.UNIFIED_BACKUP_JSONL_FILE_NAME,
+            RadarBackup.LEGACY_FULL_BACKUP_FILE_NAME,
+            RadarBackup.DEFAULT_FILE_NAME
+        )
 
         // 1. Внутренний файл (сохраняется Android при hasFragileUserData=true)
-        val internal = File(appContext.filesDir, RadarBackup.FULL_BACKUP_FILE_NAME)
-        if (internal.exists() && internal.length() > 10) {
-            runCatching { return@withContext internal.readText(Charsets.UTF_8) }
+        for (name in candidates) {
+            val internal = File(appContext.filesDir, name)
+            if (internal.exists() && internal.length() > 10) {
+                runCatching { return@withContext internal.readText(Charsets.UTF_8) }
+            }
         }
 
         // 2. В публичной папке Documents/OLXRadar (прямой доступ на Android <= 10 или для собственных файлов MediaStore)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            val pubDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), PUBLIC_SUBFOLDER)
-            val pubFile = File(pubDir, RadarBackup.FULL_BACKUP_FILE_NAME)
-            if (pubFile.exists() && pubFile.length() > 10) {
-                runCatching { return@withContext pubFile.readText(Charsets.UTF_8) }
-            }
-        } else {
-            readFromMediaStoreDocuments(appContext, RadarBackup.FULL_BACKUP_FILE_NAME)?.let {
-                return@withContext it
+        for (name in candidates) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                val pubDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), PUBLIC_SUBFOLDER)
+                val pubFile = File(pubDir, name)
+                if (pubFile.exists() && pubFile.length() > 10) {
+                    runCatching { return@withContext pubFile.readText(Charsets.UTF_8) }
+                }
+            } else {
+                readFromMediaStoreDocuments(appContext, name)?.let {
+                    return@withContext it
+                }
             }
         }
 
         // 3. В выбранной SAF-папке
         val safUri = AppPreferences.state.value.safBackupTreeUri
         if (!safUri.isNullOrBlank() && isSafTreeAccessible(appContext, safUri)) {
-            runCatching {
-                readFromSafTree(appContext, Uri.parse(safUri), RadarBackup.FULL_BACKUP_FILE_NAME)?.let {
-                    return@withContext it
+            val parsedTreeUri = runCatching { Uri.parse(safUri) }.getOrNull()
+            if (parsedTreeUri != null) {
+                for (name in candidates) {
+                    readFromSafTree(appContext, parsedTreeUri, name)?.let {
+                        return@withContext it
+                    }
                 }
             }
         }

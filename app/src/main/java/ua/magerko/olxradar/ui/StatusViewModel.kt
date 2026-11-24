@@ -332,18 +332,35 @@ class StatusViewModel(
         getApplication<Application>().startService(intent)
     }
 
-    suspend fun buildFullBackupJson(password: String? = null): String = withContext(Dispatchers.IO) {
+    suspend fun buildFullBackupJson(password: String? = null, asJsonl: Boolean = false): String = withContext(Dispatchers.IO) {
         val app = getApplication<Application>()
+        val db = AppDatabase.getInstance(app)
         val snap = AppPreferences.state.value
         val watches = watchDao.getAllWatches()
         val findings = if (snap.backupIncludeFindings) findingDao.getFindingsForBackup(limit = 300) else emptyList()
-        val plain = RadarBackup.toFullBackupJson(
-            context = app,
-            watches = watches,
-            findings = findings,
-            includeFindings = snap.backupIncludeFindings,
-            includeApiKeys = snap.backupIncludeApiKeys
-        )
+        val blockedSellers = db.sellerBlacklistDao().getAll()
+        val priceHistory = db.priceHistoryDao().getRecent(500)
+        val plain = if (asJsonl) {
+            RadarBackup.toFullBackupJsonl(
+                context = app,
+                watches = watches,
+                findings = findings,
+                blockedSellers = blockedSellers,
+                priceHistory = priceHistory,
+                includeFindings = snap.backupIncludeFindings,
+                includeApiKeys = snap.backupIncludeApiKeys
+            )
+        } else {
+            RadarBackup.toFullBackupJson(
+                context = app,
+                watches = watches,
+                findings = findings,
+                blockedSellers = blockedSellers,
+                priceHistory = priceHistory,
+                includeFindings = snap.backupIncludeFindings,
+                includeApiKeys = snap.backupIncludeApiKeys
+            )
+        }
         val pass = password?.trim()
         if (!pass.isNullOrEmpty()) RadarBackup.encryptBackupJson(plain, pass) else plain
     }

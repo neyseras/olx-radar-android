@@ -113,17 +113,44 @@ class WatchesViewModel(
         }
     }
 
-    /** Экспорт всех радаров в JSON для файла olx-radar-list.config. */
-    suspend fun buildBackupJson(): String = withContext(Dispatchers.IO) {
+    /** Экспорт единого полного бэкапа (радары + настройки + избранное + черный список). */
+    suspend fun buildBackupJson(asJsonl: Boolean = false): String = withContext(Dispatchers.IO) {
+        val app = getApplication<Application>()
+        val db = ua.magerko.olxradar.data.local.AppDatabase.getInstance(app)
         val watches = watchDao.getAllWatches()
-        RadarBackup.toJson(watches)
+        val findings = db.findingDao().getFindingsForBackup(limit = 300)
+        val blockedSellers = db.sellerBlacklistDao().getAll()
+        val priceHistory = db.priceHistoryDao().getRecent(500)
+        val snap = ua.magerko.olxradar.data.prefs.AppPreferences.state.value
+
+        if (asJsonl) {
+            RadarBackup.toFullBackupJsonl(
+                context = app,
+                watches = watches,
+                findings = findings,
+                blockedSellers = blockedSellers,
+                priceHistory = priceHistory,
+                includeFindings = snap.backupIncludeFindings,
+                includeApiKeys = snap.backupIncludeApiKeys
+            )
+        } else {
+            RadarBackup.toFullBackupJson(
+                context = app,
+                watches = watches,
+                findings = findings,
+                blockedSellers = blockedSellers,
+                priceHistory = priceHistory,
+                includeFindings = snap.backupIncludeFindings,
+                includeApiKeys = snap.backupIncludeApiKeys
+            )
+        }
     }
 
-    /** Импорт радаров (и при наличии v2 — настроек и находок) из JSON. */
-    suspend fun importBackupJson(json: String): Pair<Int, Int> {
+    /** Импорт полного бэкапа: радары, настройки, находки, черный список продавцов. */
+    suspend fun importBackupJson(json: String): PersistentStorageManager.RestoreResult {
         val result = PersistentStorageManager.restoreFromBackupJson(getApplication(), json)
         PersistentStorageManager.scheduleAutoBackup(getApplication())
-        return Pair(result.watchesImported, result.watchesSkipped)
+        return result
     }
 
     suspend fun discoverSurvivingBackup(): RadarBackup.FullBackupData? {

@@ -9,11 +9,14 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import ua.magerko.olxradar.data.backup.PersistentStorageManager
 import ua.magerko.olxradar.data.backup.RadarBackup
 import ua.magerko.olxradar.data.local.AppDatabase
 import ua.magerko.olxradar.data.model.Finding
 import ua.magerko.olxradar.data.model.Listing
 import ua.magerko.olxradar.data.model.OlxCategory
+import ua.magerko.olxradar.data.model.PriceHistory
+import ua.magerko.olxradar.data.model.SellerBlacklist
 import ua.magerko.olxradar.data.model.Watch
 import ua.magerko.olxradar.data.network.OlxCities
 import ua.magerko.olxradar.data.network.OlxParser
@@ -159,7 +162,7 @@ class SearchAndBackupTest {
         val json = RadarBackup.toFullBackupJson(context, listOf(w), listOf(f), includeFindings = true)
         val parsed = RadarBackup.parseFullBackup(json)
 
-        assertEquals(2, parsed.format)
+        assertEquals(3, parsed.format)
         assertEquals(1, parsed.watches.size)
         assertEquals("RTX 4070", parsed.watches[0].title)
         assertEquals(1, parsed.findings.size)
@@ -274,5 +277,105 @@ class SearchAndBackupTest {
 
         val decrypted = RadarBackup.decryptBackupJson(encrypted, "MyStrongPass42")
         assertEquals(plain, decrypted)
+    }
+
+    @Test
+    fun testJsonlBackupRoundTrip_andCompleteRestore() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val watch = Watch(id = 11L, title = "PlayStation 5", query = "ps5", priceTo = 16000)
+            val finding = Finding(
+                id = 1L,
+                watchId = 11L,
+                listingId = 777111L,
+                title = "Sony PS5 Slim",
+                price = 14500,
+                currency = "UAH",
+                cityName = "Одеса",
+                url = "https://olx.ua/d/777111",
+                photoUrl = null,
+                reason = "new",
+                createdAt = 1000L,
+                foundAt = 2000L,
+                isFavorite = true
+            )
+            val blocked = SellerBlacklist(sellerKey = "scammer_123", displayName = "Suspicious Seller")
+            val priceHistory = PriceHistory(watchId = 11L, listingId = 777111L, price = 15000, currency = "UAH")
+
+            val jsonl = RadarBackup.toFullBackupJsonl(
+                context = context,
+                watches = listOf(watch),
+                findings = listOf(finding),
+                blockedSellers = listOf(blocked),
+                priceHistory = listOf(priceHistory),
+                includeFindings = true
+            )
+
+            // Проверяем формат JSON Lines
+            val lines = jsonl.trim().lines()
+            assertTrue("JSONL должен содержать минимум 4 строки", lines.size >= 4)
+            assertTrue("Первая строка — метаданные", lines[0].contains("\"type\":\"meta\""))
+            assertTrue("Вторая строка — настройки", lines[1].contains("\"type\":\"settings\""))
+
+            val parsed = RadarBackup.parseFullBackup(jsonl)
+            assertEquals(3, parsed.format)
+            assertEquals(1, parsed.watches.size)
+            assertEquals("PlayStation 5", parsed.watches[0].title)
+            assertEquals(1, parsed.findings.size)
+            assertEquals("Sony PS5 Slim", parsed.findings[0].title)
+            assertEquals(1, parsed.blockedSellers.size)
+            assertEquals("scammer_123", parsed.blockedSellers[0].sellerKey)
+            assertEquals(1, parsed.priceHistory.size)
+            assertEquals(15000, parsed.priceHistory[0].price)
+            assertNotNull(parsed.settingsJson)
+
+            // Проверяем полное восстановление: "просто загрузил — всё загрузилось"
+            val restoreResult = PersistentStorageManager.restoreFromBackupJson(context, jsonl)
+            assertEquals(1, restoreResult.watchesImported)
+            assertEquals(1, restoreResult.findingsImported)
+            assertEquals(1, restoreResult.blockedSellersImported)
+            assertEquals(1, restoreResult.priceHistoryImported)
+            assertTrue(restoreResult.settingsApplied)
+
+            // Проверяем данные в Room DB
+            val savedWatches = db.watchDao().getAllWatches()
+            // База в тесте создавалась отдельно для db, но restoreFromBackupJson использует синглтон AppDatabase.getInstance(context)
+            // Проверим через singleton db
+            val singletonDb = AppDatabase.getInstance(context)
+            val restoredWatch = singletonDb.watchDao().getAllWatches().firstOrNull { it.query == "ps5" }
+            assertNotNull("Радар должен быть в базе данных", restoredWatch)
+            assertTrue("Продавец должен быть в черном списке", singletonDb.sellerBlacklistDao().isBlocked("scammer_123"))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun testLegacyV1AndV2FormatsCompatibility() {
+        // v1: только радары
+        val v1Json = """
+            {
+              "app": "OLX Radar",
+              "format": 1,
+              "radars": [
+                { "title": "MacBook Pro", "query": "macbook pro", "currency": "USD", "price_to": 1200 }
+              ]
+            }
+        """.trimIndent()
+        val parsedV1 = RadarBackup.parseFullBackup(v1Json)
+        assertEquals(1, parsedV1.format)
+        assertEquals(1, parsedV1.watches.size)
+        assertEquals("MacBook Pro", parsedV1.watches[0].title)
+        assertTrue(parsedV1.findings.isEmpty())
+        assertNull(parsedV1.settingsJson)
+
+        // Сырой JSON-массив радаров
+        val rawArray = """[{"title": "Dyson", "query": "dyson"}]"""
+        val parsedArray = RadarBackup.parseFullBackup(rawArray)
+        assertEquals(1, parsedArray.watches.size)
+        assertEquals("Dyson", parsedArray.watches[0].title)
     }
 }

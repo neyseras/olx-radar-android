@@ -152,14 +152,19 @@ fun StatusAiSettingsScreen(
 
     var showExportPasswordDialog by remember { mutableStateOf(false) }
     var pendingExportPassword by remember { mutableStateOf<String?>(null) }
+    var pendingExportAsJsonl by remember { mutableStateOf(false) }
     var pendingEncryptedBackupJson by remember { mutableStateOf<String?>(null) }
 
     val exportFullLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
             coroutineScope.launch {
                 try {
-                    val json = statusViewModel.buildFullBackupJson(password = pendingExportPassword)
+                    val json = statusViewModel.buildFullBackupJson(
+                        password = pendingExportPassword,
+                        asJsonl = pendingExportAsJsonl
+                    )
                     pendingExportPassword = null
+                    pendingExportAsJsonl = false
                     withContext(Dispatchers.IO) {
                         context.contentResolver.openOutputStream(uri, "wt")?.use { os ->
                             os.write(json.toByteArray(Charsets.UTF_8))
@@ -169,11 +174,13 @@ fun StatusAiSettingsScreen(
                     Toast.makeText(context, "Полный бэкап экспортирован!", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
                     pendingExportPassword = null
+                    pendingExportAsJsonl = false
                     Toast.makeText(context, "Ошибка экспорта: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         } else {
             pendingExportPassword = null
+            pendingExportAsJsonl = false
         }
     }
 
@@ -191,11 +198,14 @@ fun StatusAiSettingsScreen(
                     } else {
                         val res = statusViewModel.restoreFromFullBackupJson(json)
                         totalDbFindings = statusViewModel.getTotalFindingsCount()
-                        Toast.makeText(
-                            context,
-                            "Восстановлено радаров: ${res.watchesImported}, находок: ${res.findingsImported}",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        val summary = buildString {
+                            append("Бэкап загружен: радаров +${res.watchesImported}")
+                            if (res.watchesSkipped > 0) append(" (пропущено: ${res.watchesSkipped})")
+                            if (res.findingsImported > 0) append(", находок: +${res.findingsImported}")
+                            if (res.blockedSellersImported > 0) append(", продавцов: +${res.blockedSellersImported}")
+                            if (res.settingsApplied) append(", настройки применены")
+                        }
+                        Toast.makeText(context, summary, Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
                     Toast.makeText(context, "Ошибка восстановления: ${e.message}", Toast.LENGTH_LONG).show()
@@ -501,6 +511,7 @@ fun StatusAiSettingsScreen(
 
     if (showExportPasswordDialog) {
         var exportPwd by remember { mutableStateOf("") }
+        var exportAsJsonl by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { showExportPasswordDialog = false },
             containerColor = CyberneticModalSurface,
@@ -508,7 +519,7 @@ fun StatusAiSettingsScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Оставьте пароль пустым для обычного JSON, или введите пароль для шифрования AES-256 (защищает API-ключи и данные).",
+                        text = "Оставьте пароль пустым для обычного файла, или введите пароль для шифрования AES-256 (защищает API-ключи и данные).",
                         color = CyberneticOnSurfaceVariant,
                         fontSize = 12.sp
                     )
@@ -520,15 +531,33 @@ fun StatusAiSettingsScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Checkbox(
+                            checked = exportAsJsonl,
+                            onCheckedChange = { exportAsJsonl = it }
+                        )
+                        Text(
+                            text = "Формат JSON Lines (.jsonl)",
+                            color = CyberneticOnSurface,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Button(onClick = {
                     pendingExportPassword = exportPwd.trim().takeIf { it.isNotEmpty() }
+                    pendingExportAsJsonl = exportAsJsonl
                     showExportPasswordDialog = false
-                    exportFullLauncher.launch(RadarBackup.FULL_BACKUP_FILE_NAME)
+                    exportFullLauncher.launch(
+                        if (exportAsJsonl) RadarBackup.UNIFIED_BACKUP_JSONL_FILE_NAME
+                        else RadarBackup.UNIFIED_BACKUP_FILE_NAME
+                    )
                 }) {
-                    Text(if (exportPwd.isBlank()) "Экспорт JSON" else "Зашифровать и сохранить")
+                    Text(if (exportPwd.isBlank()) (if (exportAsJsonl) "Экспорт JSONL" else "Экспорт JSON") else "Зашифровать и сохранить")
                 }
             },
             dismissButton = {
@@ -565,11 +594,14 @@ fun StatusAiSettingsScreen(
                                 val res = statusViewModel.restoreFromFullBackupJson(encryptedJson, importPwd.trim())
                                 totalDbFindings = statusViewModel.getTotalFindingsCount()
                                 pendingEncryptedBackupJson = null
-                                Toast.makeText(
-                                    context,
-                                    "Восстановлено радаров: ${res.watchesImported}, находок: ${res.findingsImported}",
-                                    Toast.LENGTH_LONG
-                                ).show()
+                                val summary = buildString {
+                                    append("Бэкап загружен: радаров +${res.watchesImported}")
+                                    if (res.watchesSkipped > 0) append(" (пропущено: ${res.watchesSkipped})")
+                                    if (res.findingsImported > 0) append(", находок: +${res.findingsImported}")
+                                    if (res.blockedSellersImported > 0) append(", продавцов: +${res.blockedSellersImported}")
+                                    if (res.settingsApplied) append(", настройки применены")
+                                }
+                                Toast.makeText(context, summary, Toast.LENGTH_LONG).show()
                             } catch (_: Exception) {
                                 Toast.makeText(context, "Неверный пароль или повреждённый файл", Toast.LENGTH_LONG).show()
                             }

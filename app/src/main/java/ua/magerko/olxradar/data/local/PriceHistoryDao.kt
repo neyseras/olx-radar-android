@@ -15,6 +15,9 @@ interface PriceHistoryDao {
     @Query("SELECT * FROM price_history WHERE listing_id = :listingId ORDER BY recorded_at DESC LIMIT 1")
     suspend fun getLatestForListing(listingId: Long): PriceHistory?
 
+    @Query("SELECT * FROM price_history ORDER BY recorded_at DESC LIMIT :limit")
+    suspend fun getRecent(limit: Int = 500): List<PriceHistory>
+
     @Insert
     suspend fun insert(entry: PriceHistory)
 
