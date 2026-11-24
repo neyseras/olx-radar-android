@@ -608,10 +608,15 @@ fun RadarCard(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 // Price Range Badge
+                val currSymbol = when (watch.priceCurrency.trim().uppercase()) {
+                    "USD", "$" -> "$"
+                    "EUR", "€" -> "€"
+                    else -> "₴"
+                }
                 val priceText = when {
-                    watch.priceFrom != null && watch.priceTo != null -> "${watch.priceFrom} – ${watch.priceTo} ₴"
-                    watch.priceFrom != null -> "от ${watch.priceFrom} ₴"
-                    watch.priceTo != null -> "до ${watch.priceTo} ₴"
+                    watch.priceFrom != null && watch.priceTo != null -> "${watch.priceFrom} – ${watch.priceTo} $currSymbol"
+                    watch.priceFrom != null -> "от ${watch.priceFrom} $currSymbol"
+                    watch.priceTo != null -> "до ${watch.priceTo} $currSymbol"
                     else -> "Любая цена"
                 }
                 Surface(

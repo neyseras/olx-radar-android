@@ -73,8 +73,8 @@ android {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
-            it.maxHeapSize = "1024m"
-            it.jvmArgs("-XX:MaxMetaspaceSize=512m")
+            it.maxHeapSize = "512m"
+            it.jvmArgs("-XX:MaxMetaspaceSize=256m")
         }
     }
     sourceSets {

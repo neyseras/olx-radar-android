@@ -4,29 +4,28 @@ import android.content.Intent
 import android.net.Uri
 import android.text.format.DateUtils
 import android.widget.Toast
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,6 +35,7 @@ import coil.compose.AsyncImage
 import ua.magerko.olxradar.data.model.Finding
 import ua.magerko.olxradar.data.model.Watch
 import ua.magerko.olxradar.ui.FindingsFeedTab
+import ua.magerko.olxradar.ui.FindingsSortMode
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -55,7 +55,11 @@ fun FindingsFeedScreen(
     marketPricesByWatch: Map<Long, Int> = emptyMap(),
     queuedFindings: List<Finding> = emptyList(),
     currentFeedTab: FindingsFeedTab = if (isRejectedTab) FindingsFeedTab.REJECTED else FindingsFeedTab.MATCHES,
-    onSelectFeedTab: ((FindingsFeedTab) -> Unit)? = null
+    onSelectFeedTab: ((FindingsFeedTab) -> Unit)? = null,
+    sortMode: FindingsSortMode = FindingsSortMode.NEWEST,
+    searchQuery: String = "",
+    onSetSortMode: ((FindingsSortMode) -> Unit)? = null,
+    onSetSearchQuery: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val effectiveTab = currentFeedTab
@@ -64,6 +68,9 @@ fun FindingsFeedScreen(
         FindingsFeedTab.QUEUED -> queuedFindings
         FindingsFeedTab.REJECTED -> rejectedFindings
     }
+
+    var isSearchExpanded by remember { mutableStateOf(searchQuery.isNotBlank()) }
+    var showSortMenu by remember { mutableStateOf(false) }
 
     val selectTabHandler: (FindingsFeedTab) -> Unit = { tab ->
         if (onSelectFeedTab != null) {
@@ -78,225 +85,249 @@ fun FindingsFeedScreen(
             .fillMaxSize()
             .background(if (isGlassTheme) Color.Transparent else CyberneticSurface)
     ) {
-        // TOP HEADER
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        // MODERN TOP APP BAR
+        Surface(
+            color = if (isGlassTheme) CyberneticSurfaceContainerHigh.copy(alpha = 0.5f) else CyberneticSurface,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(CyberneticPrimary.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Radar,
-                        contentDescription = null,
-                        tint = CyberneticPrimary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-
-                Column {
+                    // Logo + Title
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "OLX Радар",
-                            color = CyberneticOnSurface,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = (-0.3).sp
-                        )
                         Box(
                             modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(CyberneticSecondary)
-                        )
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(CyberneticPrimary.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Radar,
+                                contentDescription = null,
+                                tint = CyberneticPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "OLX Радар",
+                                    color = CyberneticOnSurface,
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = (-0.4).sp
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(CyberneticSecondary)
+                                )
+                            }
+                            Text(
+                                text = when (effectiveTab) {
+                                    FindingsFeedTab.MATCHES -> "Найдено: ${findings.size} лотов"
+                                    FindingsFeedTab.QUEUED -> "В очереди ИИ: ${queuedFindings.size} лотов"
+                                    FindingsFeedTab.REJECTED -> "Отклонено: ${rejectedFindings.size} лотов"
+                                },
+                                color = when (effectiveTab) {
+                                    FindingsFeedTab.MATCHES -> CyberneticSecondary
+                                    FindingsFeedTab.QUEUED -> CyberneticTertiary
+                                    FindingsFeedTab.REJECTED -> CyberneticOutline
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
-                    Text(
-                        text = when (effectiveTab) {
-                            FindingsFeedTab.MATCHES -> "Фоновый поиск активен · ${findings.size} найдено"
-                            FindingsFeedTab.QUEUED -> "Очередь ИИ-потока · ${queuedFindings.size} в обработке"
-                            FindingsFeedTab.REJECTED -> "Отклонено ИИ · ${rejectedFindings.size} отфильтровано"
+
+                    // Top Action Buttons: Search, Sort, Settings
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Search Toggle
+                        IconButton(
+                            onClick = {
+                                isSearchExpanded = !isSearchExpanded
+                                if (!isSearchExpanded) {
+                                    onSetSearchQuery?.invoke("")
+                                }
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
+                                contentDescription = "Поиск",
+                                tint = if (searchQuery.isNotBlank() || isSearchExpanded) CyberneticPrimary else CyberneticOnSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        // Sort Menu Trigger
+                        Box {
+                            IconButton(
+                                onClick = { showSortMenu = true },
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Sort,
+                                    contentDescription = "Сортировка",
+                                    tint = if (sortMode != FindingsSortMode.NEWEST) CyberneticPrimary else CyberneticOnSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false },
+                                modifier = Modifier.background(CyberneticSurfaceContainerHighest)
+                            ) {
+                                FindingsSortMode.entries.forEach { mode ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                if (sortMode == mode) {
+                                                    Icon(
+                                                        Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        tint = CyberneticPrimary,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                } else {
+                                                    Spacer(modifier = Modifier.size(16.dp))
+                                                }
+                                                Text(
+                                                    text = mode.label,
+                                                    color = if (sortMode == mode) CyberneticPrimary else CyberneticOnSurface,
+                                                    fontWeight = if (sortMode == mode) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            onSetSortMode?.invoke(mode)
+                                            showSortMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Settings Icon
+                        IconButton(
+                            onClick = onNavigateToSettings,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = "Настройки",
+                                tint = CyberneticOnSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Expandable Search Field
+                AnimatedVisibility(
+                    visible = isSearchExpanded,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { onSetSearchQuery?.invoke(it) },
+                        placeholder = { Text("Поиск по заголовку или городу...", fontSize = 13.sp, color = CyberneticOutline) },
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = null, tint = CyberneticOutline, modifier = Modifier.size(18.dp))
                         },
-                        color = when (effectiveTab) {
-                            FindingsFeedTab.MATCHES -> CyberneticSecondary
-                            FindingsFeedTab.QUEUED -> CyberneticTertiary
-                            FindingsFeedTab.REJECTED -> CyberneticOutline
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { onSetSearchQuery?.invoke("") }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Очистить", tint = CyberneticOutline, modifier = Modifier.size(16.dp))
+                                }
+                            }
                         },
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CyberneticPrimary,
+                            unfocusedBorderColor = CyberneticOutlineVariant.copy(alpha = 0.5f),
+                            focusedContainerColor = CyberneticSurfaceContainerLow,
+                            unfocusedContainerColor = CyberneticSurfaceContainerLow,
+                            focusedTextColor = CyberneticOnSurface,
+                            unfocusedTextColor = CyberneticOnSurface
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .height(50.dp)
                     )
                 }
-            }
-
-            IconButton(
-                onClick = onNavigateToSettings,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "Настройки",
-                    tint = CyberneticOnSurface,
-                    modifier = Modifier.size(22.dp)
-                )
             }
         }
 
-        // SEGMENTED TAB SELECTOR: "Подходящие" | "В очереди" | "Отклонённые"
-        Box(
+        // MODERN SEGMENTED TABS: "Подходящие" | "В очереди" | "Отклонённые"
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(CyberneticSurfaceContainerLowest)
-                .padding(4.dp)
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = CyberneticSurfaceContainerLowest
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(3.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 // Tab: Matches
-                val isMatches = effectiveTab == FindingsFeedTab.MATCHES
-                Surface(
-                    onClick = { selectTabHandler(FindingsFeedTab.MATCHES) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (isMatches) CyberneticSurfaceContainerHigh else Color.Transparent
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Подходящие",
-                            color = if (isMatches) CyberneticPrimary else CyberneticOnSurfaceVariant,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(if (isMatches) CyberneticPrimary.copy(alpha = 0.2f) else CyberneticSurfaceContainerHighest)
-                                .padding(horizontal = 6.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = "${findings.size}",
-                                color = if (isMatches) CyberneticPrimary else CyberneticOnSurfaceVariant,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
+                ModernFeedTabPill(
+                    title = "Подходящие",
+                    count = findings.size,
+                    isSelected = effectiveTab == FindingsFeedTab.MATCHES,
+                    activeColor = CyberneticPrimary,
+                    modifier = Modifier.weight(1f),
+                    onClick = { selectTabHandler(FindingsFeedTab.MATCHES) }
+                )
 
                 // Tab: Queued
-                val isQueued = effectiveTab == FindingsFeedTab.QUEUED
-                Surface(
-                    onClick = { selectTabHandler(FindingsFeedTab.QUEUED) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (isQueued) CyberneticSurfaceContainerHigh else Color.Transparent
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "В очереди",
-                            color = if (isQueued) CyberneticTertiary else CyberneticOnSurfaceVariant,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(if (isQueued) CyberneticTertiary.copy(alpha = 0.2f) else CyberneticSurfaceContainerHighest)
-                                .padding(horizontal = 6.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = "${queuedFindings.size}",
-                                color = if (isQueued) CyberneticTertiary else CyberneticOnSurfaceVariant,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
+                ModernFeedTabPill(
+                    title = "В очереди",
+                    count = queuedFindings.size,
+                    isSelected = effectiveTab == FindingsFeedTab.QUEUED,
+                    activeColor = CyberneticTertiary,
+                    modifier = Modifier.weight(1f),
+                    onClick = { selectTabHandler(FindingsFeedTab.QUEUED) }
+                )
 
-                // Tab: Filtered / Rejected
-                val isRejected = effectiveTab == FindingsFeedTab.REJECTED
-                Surface(
-                    onClick = { selectTabHandler(FindingsFeedTab.REJECTED) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (isRejected) CyberneticSurfaceContainerHigh else Color.Transparent
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Отклонённые",
-                            color = if (isRejected) CyberneticPrimary else CyberneticOnSurfaceVariant,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(if (isRejected) CyberneticPrimary.copy(alpha = 0.2f) else CyberneticSurfaceContainerHighest)
-                                .padding(horizontal = 6.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = "${rejectedFindings.size}",
-                                color = if (isRejected) CyberneticPrimary else CyberneticOnSurfaceVariant,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
+                // Tab: Rejected
+                ModernFeedTabPill(
+                    title = "Архив",
+                    count = rejectedFindings.size,
+                    isSelected = effectiveTab == FindingsFeedTab.REJECTED,
+                    activeColor = CyberneticError,
+                    modifier = Modifier.weight(1f),
+                    onClick = { selectTabHandler(FindingsFeedTab.REJECTED) }
+                )
             }
         }
 
@@ -304,67 +335,84 @@ fun FindingsFeedScreen(
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp),
+                .padding(vertical = 4.dp),
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // "Все" chip
+            // "Все радары" Chip
             item {
                 val isSelected = selectedWatchId == null
-                Surface(
+                FilterChip(
+                    selected = isSelected,
                     onClick = { onFilterByWatch(null) },
-                    shape = RoundedCornerShape(20.dp),
-                    color = if (isSelected) CyberneticPrimary else CyberneticSurfaceContainerHigh
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = "Все",
-                            color = if (isSelected) CyberneticOnPrimary else CyberneticOnSurface,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(if (isSelected) CyberneticOnPrimary.copy(alpha = 0.2f) else CyberneticSurfaceContainerHighest)
-                                .padding(horizontal = 6.dp, vertical = 1.dp)
+                    label = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "${currentList.size}",
-                                color = if (isSelected) CyberneticOnPrimary else CyberneticSecondary,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
+                                text = "Все",
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                             )
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isSelected) CyberneticPrimary.copy(alpha = 0.25f) else CyberneticSurfaceContainerHighest
+                            ) {
+                                Text(
+                                    text = "${currentList.size}",
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) CyberneticPrimary else CyberneticOnSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                )
+                            }
                         }
-                    }
-                }
+                    },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = CyberneticPrimary.copy(alpha = 0.16f),
+                        selectedLabelColor = CyberneticPrimary,
+                        containerColor = CyberneticSurfaceContainerLow,
+                        labelColor = CyberneticOnSurfaceVariant
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = isSelected,
+                        borderColor = if (isSelected) CyberneticPrimary.copy(alpha = 0.6f) else CyberneticOutlineVariant.copy(alpha = 0.3f)
+                    )
+                )
             }
 
             // Radar chips
-            items(watches) { watch ->
+            items(watches, key = { it.id }) { watch ->
                 val isSelected = selectedWatchId == watch.id
-                Surface(
+                FilterChip(
+                    selected = isSelected,
                     onClick = { onFilterByWatch(watch.id) },
-                    shape = RoundedCornerShape(20.dp),
-                    color = if (isSelected) CyberneticPrimary else CyberneticSurfaceContainerHigh
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
+                    label = {
                         Text(
-                            text = watch.title,
-                            color = if (isSelected) CyberneticOnPrimary else CyberneticOnSurface,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
+                            text = watch.title.ifBlank { watch.query },
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                    }
-                }
+                    },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = CyberneticPrimary.copy(alpha = 0.16f),
+                        selectedLabelColor = CyberneticPrimary,
+                        containerColor = CyberneticSurfaceContainerLow,
+                        labelColor = CyberneticOnSurfaceVariant
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = isSelected,
+                        borderColor = if (isSelected) CyberneticPrimary.copy(alpha = 0.6f) else CyberneticOutlineVariant.copy(alpha = 0.3f)
+                    )
+                )
             }
         }
 
@@ -379,114 +427,97 @@ fun FindingsFeedScreen(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(horizontal = 24.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(horizontal = 32.dp)
                 ) {
-                    Icon(
-                        imageVector = when (effectiveTab) {
-                            FindingsFeedTab.MATCHES -> Icons.Default.Radar
-                            FindingsFeedTab.QUEUED -> Icons.Default.Schedule
-                            FindingsFeedTab.REJECTED -> Icons.Default.FilterAltOff
-                        },
-                        contentDescription = null,
-                        tint = when (effectiveTab) {
-                            FindingsFeedTab.QUEUED -> CyberneticTertiary
-                            else -> CyberneticOutline
-                        },
-                        modifier = Modifier.size(48.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(CyberneticSurfaceContainerHigh),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = when (effectiveTab) {
+                                FindingsFeedTab.MATCHES -> Icons.Default.Radar
+                                FindingsFeedTab.QUEUED -> Icons.Default.Schedule
+                                FindingsFeedTab.REJECTED -> Icons.Default.FilterAltOff
+                            },
+                            contentDescription = null,
+                            tint = when (effectiveTab) {
+                                FindingsFeedTab.MATCHES -> CyberneticPrimary
+                                FindingsFeedTab.QUEUED -> CyberneticTertiary
+                                FindingsFeedTab.REJECTED -> CyberneticOutline
+                            },
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+
                     Text(
-                        text = when (effectiveTab) {
-                            FindingsFeedTab.MATCHES -> {
-                                if (selectedWatch != null) "Для «${selectedWatch.title}» пока нет находок"
+                        text = when {
+                            searchQuery.isNotBlank() -> "Ничего не найдено по запросу «$searchQuery»"
+                            effectiveTab == FindingsFeedTab.MATCHES -> {
+                                if (selectedWatch != null) "Для «${selectedWatch.title}» пока нет новых находок"
                                 else "Пока нет новых находок"
                             }
-                            FindingsFeedTab.QUEUED -> {
-                                if (selectedWatch != null) "Нет лотов в очереди для «${selectedWatch.title}»"
-                                else "Очередь ИИ пуста"
-                            }
-                            FindingsFeedTab.REJECTED -> {
-                                if (selectedWatch != null) "Нет отклоненных для «${selectedWatch.title}»"
-                                else "Нет отклоненных объявлений"
-                            }
+                            effectiveTab == FindingsFeedTab.QUEUED -> "Очередь ИИ пуста"
+                            effectiveTab == FindingsFeedTab.REJECTED -> "Архив отклонённых объявлений пуст"
+                            else -> "Список пуст"
                         },
-                        color = CyberneticOnSurfaceVariant,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
+                        color = CyberneticOnSurface,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+
                     Text(
                         text = when (effectiveTab) {
-                            FindingsFeedTab.MATCHES -> "Радар продолжает сканирование в фоновом режиме"
-                            FindingsFeedTab.QUEUED -> "Лоты, анализ которых занял > 2 минут, ожидают фоновой обработки"
-                            FindingsFeedTab.REJECTED -> "Здесь сохраняются объявления, не прошедшие проверку ИИ"
+                            FindingsFeedTab.MATCHES -> "Фоновый сканер проверяет OLX в автоматическом режиме"
+                            FindingsFeedTab.QUEUED -> "Сюда попадают тяжелые объявления, ожидающие анализа нейросетью"
+                            FindingsFeedTab.REJECTED -> "Здесь сохраняются предложения, отсеянные по стоп-словам или вердикту ИИ"
                         },
-                        color = CyberneticOutline,
+                        color = CyberneticOnSurfaceVariant,
                         fontSize = 12.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 16.sp
                     )
                 }
             }
         } else {
-            AdaptiveFindingsList(
-                findings = currentList,
-                onFindingClick = onFindingClick,
-                onDeleteFinding = onDeleteFinding,
-                onOpenUrl = { url ->
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                        context.startActivity(intent)
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
-                        ua.magerko.olxradar.util.AppLog.w("FindingsScreen", "Не удалось открыть ссылку: $url", e)
-                    }
-                },
-                marketPricesByWatch = marketPricesByWatch
-            )
-        }
-    }
-}
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(currentList, key = { it.id }) { finding ->
+                    FindingCard(
+                        finding = finding,
+                        onClick = { onFindingClick(finding) },
+                        onDelete = { onDeleteFinding(finding) },
+                        onOpenUrl = { url ->
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        marketPrice = marketPricesByWatch[finding.watchId]
+                    )
+                }
 
-@Composable
-fun AdaptiveFindingsList(
-    findings: List<Finding>,
-    onFindingClick: (Finding) -> Unit,
-    onDeleteFinding: (Finding) -> Unit,
-    onOpenUrl: (String) -> Unit,
-    marketPricesByWatch: Map<Long, Int> = emptyMap()
-) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.TopCenter
-    ) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .widthIn(max = 680.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 80.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            items(findings, key = { it.id }) { finding ->
-                FindingCard(
-                    finding = finding,
-                    onClick = { onFindingClick(finding) },
-                    onDelete = { onDeleteFinding(finding) },
-                    onOpenUrl = onOpenUrl,
-                    marketPrice = marketPricesByWatch[finding.watchId]
-                )
-            }
-
-            // Status Footer
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+                // Footer status indicator
+                item {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
@@ -494,23 +525,73 @@ fun AdaptiveFindingsList(
                                 .clip(CircleShape)
                                 .background(CyberneticSecondary)
                         )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "Фоновый сканер OLX активен",
-                            color = CyberneticOnSurfaceVariant,
-                            fontSize = 12.sp
+                            color = CyberneticOutline,
+                            fontSize = 11.sp
                         )
                     }
-                    Text(
-                        text = "Обновление базы каждые 20-30 секунд",
-                        color = CyberneticOutline,
-                        fontSize = 11.sp
-                    )
                 }
             }
         }
     }
 }
 
+/**
+ * Кнопка-пилюля сегментированного переключателя лент.
+ */
+@Composable
+private fun ModernFeedTabPill(
+    title: String,
+    count: Int,
+    isSelected: Boolean,
+    activeColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(38.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) CyberneticSurfaceContainerHigh else Color.Transparent
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                color = if (isSelected) activeColor else CyberneticOnSurfaceVariant,
+                fontSize = 12.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Surface(
+                shape = CircleShape,
+                color = if (isSelected) activeColor.copy(alpha = 0.2f) else CyberneticSurfaceContainerHighest
+            ) {
+                Text(
+                    text = "$count",
+                    color = if (isSelected) activeColor else CyberneticOnSurfaceVariant,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Премиальная карточка находки с правильной валютой, бейджами и фото.
+ */
 @Composable
 fun FindingCard(
     finding: Finding,
@@ -519,16 +600,29 @@ fun FindingCard(
     onOpenUrl: (String) -> Unit,
     marketPrice: Int? = null
 ) {
+    val isGlass = isGlassTheme
+
     Card(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, CyberneticOutlineVariant.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CyberneticSurfaceContainer)
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = if (isGlass) 0.3f else 0.12f),
+                        Color.White.copy(alpha = if (isGlass) 0.05f else 0.02f)
+                    )
+                ),
+                shape = RoundedCornerShape(20.dp)
+            ),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isGlass) CyberneticSurfaceContainer.copy(alpha = 0.85f) else CyberneticSurfaceContainer
+        )
     ) {
-        Column {
-            // Photo Banner with badges
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Photo Container (16:9) with Overlays
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -550,279 +644,294 @@ fun FindingCard(
                         Icon(
                             imageVector = Icons.Default.Image,
                             contentDescription = null,
-                            tint = CyberneticOutline,
-                            modifier = Modifier.size(40.dp)
+                            tint = CyberneticOutline.copy(alpha = 0.5f),
+                            modifier = Modifier.size(44.dp)
                         )
                     }
                 }
 
-                // Delete button in top overlay
-                Surface(
-                    onClick = onDelete,
-                    shape = CircleShape,
-                    color = CyberneticSurfaceContainerLowest.copy(alpha = 0.85f),
+                // Gradient Vignette overlay for contrast
+                Box(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(10.dp)
-                        .size(34.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Удалить находку",
-                            tint = CyberneticError,
-                            modifier = Modifier.size(18.dp)
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.45f),
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.65f)
+                                )
+                            )
                         )
-                    }
-                }
+                )
 
-                // Top Badges (с отступом справа, чтобы не наползать на кнопку удаления и не ломать текст вертикально)
+                // Top Left Badges: AI Rating, Condition, Delivery
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(start = 10.dp, top = 10.dp, end = 52.dp),
+                        .padding(10.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // AI Match Badge
                     finding.aiScore?.let { score ->
-                        val isBargain = score >= 80
+                        val isHighMatch = score >= 80
                         Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (isBargain) CyberneticSecondaryContainer.copy(alpha = 0.95f) else CyberneticSurfaceContainerLowest.copy(alpha = 0.85f)
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isHighMatch) CyberneticSecondaryContainer else CyberneticSurfaceContainerHighest.copy(alpha = 0.9f)
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                if (isBargain) {
-                                    Icon(
-                                        imageVector = Icons.Default.Verified,
-                                        contentDescription = null,
-                                        tint = CyberneticOnSecondaryContainer,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = if (isHighMatch) Icons.Default.Verified else Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = if (isHighMatch) CyberneticOnSecondaryContainer else CyberneticPrimary,
+                                    modifier = Modifier.size(12.dp)
+                                )
                                 Text(
-                                    text = if (isBargain) "Выгодная цена ($score%)" else "ИИ: $score%",
-                                    color = if (isBargain) CyberneticOnSecondaryContainer else CyberneticPrimary,
+                                    text = "ИИ $score%",
+                                    color = if (isHighMatch) CyberneticOnSecondaryContainer else CyberneticPrimary,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    softWrap = false
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
                     }
 
-                    // Пульс состояния (Condition Sensor)
-                    finding.conditionScore?.let { pulse ->
-                        val (pulseColor, pulseLabel) = when {
-                            pulse >= 60 -> Color(0xFF2E7D32) to "Рабочий"
-                            pulse <= 40 -> Color(0xFFC62828) to "Сломан?"
-                            else -> Color(0xFF8D6E63) to "Неясно"
-                        }
+                    // OLX Delivery Badge
+                    if (finding.isDelivery) {
                         Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = pulseColor.copy(alpha = 0.85f)
+                            shape = RoundedCornerShape(12.dp),
+                            color = CyberneticTertiaryContainer
                         ) {
-                            Text(
-                                text = "Пульс $pulseLabel",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                softWrap = false,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocalShipping,
+                                    contentDescription = null,
+                                    tint = CyberneticOnTertiaryContainer,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "Доставка",
+                                    color = CyberneticOnTertiaryContainer,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    // Condition Pulse
+                    finding.conditionScore?.let { pulse ->
+                        val (label, bgColor) = when {
+                            pulse >= 65 -> "Рабочий" to Color(0xFF15803D)
+                            pulse <= 35 -> "Дефект" to Color(0xFFDC2626)
+                            else -> null to null
+                        }
+                        if (label != null && bgColor != null) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = bgColor.copy(alpha = 0.9f)
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                )
+                            }
                         }
                     }
                 }
 
-                // Bottom Meta Strip over image
+                // Top Right: Quick Delete Button
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = CyberneticSurfaceContainerLowest.copy(alpha = 0.85f),
+                    onClick = onDelete,
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.5f),
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
+                        .align(Alignment.TopEnd)
+                        .padding(10.dp)
+                        .size(32.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Удалить",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                // Bottom Strip over Photo: City and Time
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Schedule,
-                                contentDescription = null,
-                                tint = CyberneticPrimary,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            val timeAgo = DateUtils.getRelativeTimeSpanString(
-                                finding.foundAt,
-                                System.currentTimeMillis(),
-                                DateUtils.MINUTE_IN_MILLIS,
-                                DateUtils.FORMAT_ABBREV_RELATIVE
-                            ).toString()
-                            Text(
-                                text = timeAgo,
-                                color = CyberneticOnSurface,
-                                fontSize = 11.sp
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = finding.cityName.ifBlank { "Украина" },
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
 
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.LocationOn,
-                                contentDescription = null,
-                                tint = CyberneticOutline,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Text(
-                                text = finding.cityName.ifBlank { "Украина" },
-                                color = CyberneticOnSurfaceVariant,
-                                fontSize = 11.sp
-                            )
-                        }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        val relativeTime = DateUtils.getRelativeTimeSpanString(
+                            finding.foundAt,
+                            System.currentTimeMillis(),
+                            DateUtils.MINUTE_IN_MILLIS,
+                            DateUtils.FORMAT_ABBREV_RELATIVE
+                        ).toString()
+                        Text(
+                            text = relativeTime,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }
 
-            // Card Body
+            // Card Body Content
             Column(
-                modifier = Modifier.padding(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Title
                 Text(
                     text = finding.title,
                     color = CyberneticOnSurface,
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 20.sp
                 )
 
-                // Price and Market Row (реальный расчет рынка по медиане цен радара)
-                Row(
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val priceFormatted = if (finding.price != null && finding.price > 0) {
-                        "${NumberFormat.getNumberInstance(Locale("uk", "UA")).format(finding.price)} ₴"
-                    } else {
-                        "Договорная"
-                    }
-                    Text(
-                        text = priceFormatted,
-                        color = CyberneticOnSurface,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                    if (marketPrice != null && marketPrice > 0 && finding.price != null && finding.price > 0) {
-                        val diffPercent = ((marketPrice - finding.price).toDouble() / marketPrice * 100).toInt()
-                        val marketText = if (diffPercent > 0) {
-                            "Рынок: ~${NumberFormat.getNumberInstance(Locale("uk", "UA")).format(marketPrice)} ₴ (-$diffPercent%)"
-                        } else {
-                            "Рынок: ~${NumberFormat.getNumberInstance(Locale("uk", "UA")).format(marketPrice)} ₴"
-                        }
-                        Text(
-                            text = marketText,
-                            color = if (diffPercent > 0) CyberneticSecondary else CyberneticOnSurfaceVariant,
-                            fontSize = 12.sp,
-                            fontWeight = if (diffPercent > 0) FontWeight.Bold else FontWeight.Medium,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.padding(bottom = 2.dp)
-                        )
-                    }
+                // Price Row with Dynamic Currency Formatting (FIXED BUG)
+                val currencySymbol = when (finding.currency?.trim()?.uppercase()) {
+                    "USD", "$" -> "$"
+                    "EUR", "€" -> "€"
+                    "UAH", "ГРН", "ГРН." -> "₴"
+                    null, "" -> "₴"
+                    else -> finding.currency
                 }
 
-                // Groq Vision Inspection Box (only when AI analysis exists or has reasons)
-                val reasonsList = remember(finding.aiReasons, finding.aiProduct) {
-                    if (!finding.aiReasons.isNullOrBlank()) {
-                        finding.aiReasons.split("\n", ";").map { it.replace("•", "").trim() }.filter { it.isNotBlank() }.take(3)
-                    } else if (!finding.aiProduct.isNullOrBlank()) {
-                        listOf(finding.aiProduct.trim())
-                    } else {
-                        emptyList()
-                    }
+                val priceFormatted = if (finding.price != null && finding.price > 0) {
+                    val num = NumberFormat.getNumberInstance(Locale("uk", "UA")).format(finding.price)
+                    if (currencySymbol == "$" || currencySymbol == "€") "$currencySymbol$num" else "$num $currencySymbol"
+                } else {
+                    "Договорная"
                 }
 
-                if (finding.aiStatus != null || reasonsList.isNotEmpty()) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = CyberneticSurfaceContainerLow,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, CyberneticOutlineVariant.copy(alpha = 0.2f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = CyberneticPrimary,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Text(
-                                    text = "Проверка фото (Groq Vision):",
-                                    color = CyberneticPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            if (reasonsList.isNotEmpty()) {
-                                reasonsList.forEach { reason ->
-                                    Text(
-                                        text = "• ${reason.trim()}",
-                                        color = CyberneticOnSurfaceVariant,
-                                        fontSize = 11.sp,
-                                        lineHeight = 15.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            } else {
-                                Text(
-                                    text = when (finding.aiStatus) {
-                                        "queued" -> "• В очереди ИИ (> 2 мин)"
-                                        "analyzing" -> "• ИИ анализирует лот..."
-                                        else -> "• Анализ завершён (${finding.aiStatus})"
-                                    },
-                                    color = if (finding.aiStatus == "queued") CyberneticTertiary else CyberneticOnSurfaceVariant,
-                                    fontSize = 11.sp,
-                                    lineHeight = 15.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // CTA Row: OLX Button + Delete Button
                 Row(
                     modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = priceFormatted,
+                            color = CyberneticOnSurface,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+
+                        // Market Price Diff Indicator
+                        if (marketPrice != null && marketPrice > 0 && finding.price != null && finding.price > 0) {
+                            val diffPercent = ((marketPrice - finding.price).toDouble() / marketPrice * 100).toInt()
+                            if (diffPercent > 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = CyberneticSecondary.copy(alpha = 0.16f),
+                                    modifier = Modifier.padding(bottom = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "-$diffPercent% от рынка",
+                                        color = CyberneticSecondary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // AI Product Tag if detected
+                if (!finding.aiProduct.isNullOrBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = CyberneticSurfaceContainerLow,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CyberneticOutlineVariant.copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SmartToy,
+                                contentDescription = null,
+                                tint = CyberneticPrimary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "${finding.aiProduct}${finding.aiModel?.let { " · $it" } ?: ""}",
+                                color = CyberneticOnSurfaceVariant,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                // Action Strip
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -832,13 +941,13 @@ fun FindingCard(
                             containerColor = CyberneticPrimary,
                             contentColor = CyberneticOnPrimary
                         ),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .weight(1f)
                             .height(42.dp)
                     ) {
                         Text(
-                            text = "Инспектор сделки / OLX",
+                            text = "Инспектор лота",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -850,19 +959,17 @@ fun FindingCard(
                         )
                     }
 
-                    FilledTonalIconButton(
-                        onClick = onDelete,
+                    OutlinedIconButton(
+                        onClick = { onOpenUrl(finding.url) },
                         modifier = Modifier.size(42.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = CyberneticError.copy(alpha = 0.15f),
-                            contentColor = CyberneticError
-                        )
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CyberneticPrimary.copy(alpha = 0.4f))
                     ) {
                         Icon(
-                            imageVector = Icons.Default.DeleteOutline,
-                            contentDescription = "Удалить находку",
-                            modifier = Modifier.size(20.dp)
+                            imageVector = Icons.Default.Launch,
+                            contentDescription = "OLX",
+                            tint = CyberneticPrimary,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }

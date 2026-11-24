@@ -70,6 +70,10 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Восстановление сохранённой пользователем темы оформления
+        val savedTheme = ua.magerko.olxradar.ui.compose.ThemePreferences.get(this)
+        ua.magerko.olxradar.ui.compose.applyThemeMode(savedTheme)
+
         val factory = ViewModelFactory(this)
         findingsViewModel = ViewModelProvider(this, factory)[FindingsViewModel::class.java]
         watchesViewModel = ViewModelProvider(this, factory)[WatchesViewModel::class.java]
@@ -110,7 +114,8 @@ class MainActivity : AppCompatActivity() {
                         watchesViewModel = watchesViewModel,
                         statusViewModel = statusViewModel,
                         initialTab = initialTabState.value,
-                        initialFindingToOpen = selectedFindingToOpen.value
+                        initialFindingToOpen = selectedFindingToOpen.value,
+                        onClearInitialFinding = { selectedFindingToOpen.value = null }
                     )
                 }
             }

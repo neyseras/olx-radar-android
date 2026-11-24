@@ -41,3 +41,6 @@ replay_pid*.log
 *.tmp
 *.hprof
 *.orig
+
+# Other
+gitinfo.md

@@ -1,6 +1,5 @@
 package ua.magerko.olxradar.ui
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -19,6 +18,14 @@ enum class FindingsFeedTab {
     REJECTED
 }
 
+enum class FindingsSortMode(val label: String) {
+    NEWEST("Свежие"),
+    CHEAPEST("Дешевле"),
+    EXPENSIVE("Дороже"),
+    AI_SCORE("Рейтинг ИИ"),
+    CONDITION("По состоянию")
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class FindingsViewModel(
     private val findingDao: FindingDao,
@@ -34,7 +41,13 @@ class FindingsViewModel(
 
     private val isRejectedTab = MutableStateFlow(false)
     val isRejectedTabState: StateFlow<Boolean> = isRejectedTab.asStateFlow()
-    /** ID находок, для которых прямо сейчас выполняется повторный ИИ-анализ. */
+
+    private val sortMode = MutableStateFlow(FindingsSortMode.NEWEST)
+    val sortModeState: StateFlow<FindingsSortMode> = sortMode.asStateFlow()
+
+    private val searchQuery = MutableStateFlow("")
+    val searchQueryState: StateFlow<String> = searchQuery.asStateFlow()
+
     /** ID находок, для которых прямо сейчас выполняется повторный ИИ-анализ. */
     private val aiRetryingIdsInternal = MutableStateFlow<Set<Long>>(emptySet())
     val aiRetryingIds: StateFlow<Set<Long>> = aiRetryingIdsInternal.asStateFlow()
@@ -58,53 +71,75 @@ class FindingsViewModel(
     val watches: StateFlow<List<Watch>> = watchDao.getAllWatchesFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val activeFindings: StateFlow<List<Finding>> = selectedWatchId
-        .flatMapLatest { watchId ->
-            if (watchId == null) {
-                findingDao.getActiveFindingsFlow()
-            } else {
-                findingDao.getActiveFindingsByWatchFlow(watchId)
-            }
+    val activeFindings: StateFlow<List<Finding>> = combine(
+        selectedWatchId,
+        sortMode,
+        searchQuery
+    ) { watchId, sort, query ->
+        Triple(watchId, sort, query)
+    }.flatMapLatest { (watchId, sort, query) ->
+        val baseFlow = if (watchId == null) {
+            findingDao.getActiveFindingsFlow()
+        } else {
+            findingDao.getActiveFindingsByWatchFlow(watchId)
         }
-        .map { list -> sortByConditionPulse(list) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        baseFlow.map { list ->
+            filterAndSort(list, query, sort)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val rejectedFindings: StateFlow<List<Finding>> = selectedWatchId
-        .flatMapLatest { watchId ->
-            if (watchId == null) {
-                findingDao.getRejectedFindingsFlow()
-            } else {
-                findingDao.getRejectedFindingsByWatchFlow(watchId)
-            }
+    val rejectedFindings: StateFlow<List<Finding>> = combine(
+        selectedWatchId,
+        sortMode,
+        searchQuery
+    ) { watchId, sort, query ->
+        Triple(watchId, sort, query)
+    }.flatMapLatest { (watchId, sort, query) ->
+        val baseFlow = if (watchId == null) {
+            findingDao.getRejectedFindingsFlow()
+        } else {
+            findingDao.getRejectedFindingsByWatchFlow(watchId)
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        baseFlow.map { list ->
+            filterAndSort(list, query, sort)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val queuedFindings: StateFlow<List<Finding>> = selectedWatchId
-        .flatMapLatest { watchId ->
-            if (watchId == null) {
-                findingDao.getQueuedFindingsFlow()
-            } else {
-                findingDao.getQueuedFindingsByWatchFlow(watchId)
+    val queuedFindings: StateFlow<List<Finding>> = combine(
+        selectedWatchId,
+        searchQuery
+    ) { watchId, query ->
+        watchId to query
+    }.flatMapLatest { (watchId, query) ->
+        val baseFlow = if (watchId == null) {
+            findingDao.getQueuedFindingsFlow()
+        } else {
+            findingDao.getQueuedFindingsByWatchFlow(watchId)
+        }
+        baseFlow.map { list ->
+            if (query.isBlank()) list
+            else list.filter {
+                it.title.contains(query, ignoreCase = true) ||
+                it.cityName.contains(query, ignoreCase = true)
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val queuedCount: StateFlow<Int> = findingDao.getQueuedFindingsCountFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val currentFindings: StateFlow<List<Finding>> = combine(
-        selectedWatchId,
-        selectedFeedTab
-    ) { watchId, feedTab ->
-        watchId to feedTab
-    }.flatMapLatest { (watchId, feedTab) ->
+        selectedFeedTab,
+        activeFindings,
+        queuedFindings,
+        rejectedFindings
+    ) { feedTab, active, queued, rejected ->
         when (feedTab) {
-            FindingsFeedTab.MATCHES -> if (watchId == null) findingDao.getActiveFindingsFlow() else findingDao.getActiveFindingsByWatchFlow(watchId)
-            FindingsFeedTab.QUEUED -> if (watchId == null) findingDao.getQueuedFindingsFlow() else findingDao.getQueuedFindingsByWatchFlow(watchId)
-            FindingsFeedTab.REJECTED -> if (watchId == null) findingDao.getRejectedFindingsFlow() else findingDao.getRejectedFindingsByWatchFlow(watchId)
+            FindingsFeedTab.MATCHES -> active
+            FindingsFeedTab.QUEUED -> queued
+            FindingsFeedTab.REJECTED -> rejected
         }
-    }.map { list -> sortByConditionPulse(list) }
-    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Backward-compatible flow: active findings
     val findings: StateFlow<List<Finding>> = activeFindings
@@ -113,8 +148,7 @@ class FindingsViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     /**
-     * Реальный расчет рыночной цены на основе медианы всех найденных цен в рамках каждого радара.
-     * Требует минимум 3 лотов для формирования достоверного рыночного ориентира.
+     * Расчет рыночной цены на основе медианы найденных цен по каждому радару.
      */
     val marketPricesByWatch: StateFlow<Map<Long, Int>> = findingDao.getAllValidPricesFlow()
         .map { list ->
@@ -134,16 +168,53 @@ class FindingsViewModel(
     fun filterByWatch(watchId: Long?) {
         selectedWatchId.value = watchId
     }
+
+    fun setSortMode(mode: FindingsSortMode) {
+        sortMode.value = mode
+    }
+
+    fun setSearchQuery(query: String) {
+        searchQuery.value = query
+    }
+
     /**
-     * «Пульс состояния»: если сенсор давал оценки, сортируем находки
-     * по совпадению с нужным состоянием (оценка выше — раньше), иначе по времени.
+     * Поиск и правильная сортировка ленты (по умолчанию - новейшие сверху).
      */
-    private fun sortByConditionPulse(list: List<Finding>): List<Finding> {
-        if (list.none { it.conditionScore != null }) return list
-        return list.sortedWith(
-            compareByDescending<Finding> { it.conditionScore ?: -1 }
-                .thenByDescending { it.foundAt }
-        )
+    private fun filterAndSort(
+        list: List<Finding>,
+        query: String,
+        sort: FindingsSortMode
+    ): List<Finding> {
+        val filtered = if (query.isBlank()) {
+            list
+        } else {
+            val q = query.trim().lowercase()
+            list.filter {
+                it.title.lowercase().contains(q) ||
+                it.cityName.lowercase().contains(q) ||
+                (it.aiProduct?.lowercase()?.contains(q) == true)
+            }
+        }
+
+        return when (sort) {
+            FindingsSortMode.NEWEST -> filtered.sortedByDescending { it.foundAt }
+            FindingsSortMode.CHEAPEST -> filtered.sortedWith(
+                compareBy<Finding> { it.price == null }
+                    .thenBy { it.price ?: Int.MAX_VALUE }
+            )
+            FindingsSortMode.EXPENSIVE -> filtered.sortedWith(
+                compareBy<Finding> { it.price == null }
+                    .thenByDescending { it.price ?: 0 }
+            )
+            FindingsSortMode.AI_SCORE -> filtered.sortedWith(
+                compareByDescending<Finding> { it.aiScore ?: -1 }
+                    .thenByDescending { it.foundAt }
+            )
+            FindingsSortMode.CONDITION -> filtered.sortedWith(
+                compareByDescending<Finding> { it.conditionScore ?: -1 }
+                    .thenByDescending { it.foundAt }
+            )
+        }
     }
 
     fun setFeedTab(tab: FindingsFeedTab) {
@@ -167,7 +238,6 @@ class FindingsViewModel(
     fun deleteFinding(finding: Finding) {
         viewModelScope.launch {
             findingDao.deleteFinding(finding.id)
-            // Если лот был в очереди ИИ-потока — мгновенно удаляем его оттуда и отменяем обработку
             ua.magerko.olxradar.ai.AiRuntime.dequeue(finding.listingId)
             ua.magerko.olxradar.ai.AiQueueManager.cancel(finding.listingId)
         }

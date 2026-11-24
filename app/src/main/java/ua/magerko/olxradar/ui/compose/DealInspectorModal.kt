@@ -420,10 +420,12 @@ fun DealInspectorModal(
                         )
                         if (marketPrice != null && marketPrice > 0 && finding.price != null && finding.price > 0) {
                             val diffPercent = ((marketPrice - finding.price).toDouble() / marketPrice * 100).toInt()
+                            val cur = finding.currency ?: "₴"
+                            val formattedMarket = NumberFormat.getNumberInstance(Locale("uk", "UA")).format(marketPrice)
                             val marketText = if (diffPercent > 0) {
-                                "Рынок: ~${NumberFormat.getNumberInstance(Locale("uk", "UA")).format(marketPrice)} ₴ (-$diffPercent%)"
+                                "Рынок: ~$formattedMarket $cur (-$diffPercent%)"
                             } else {
-                                "Рынок: ~${NumberFormat.getNumberInstance(Locale("uk", "UA")).format(marketPrice)} ₴"
+                                "Рынок: ~$formattedMarket $cur"
                             }
                             Text(
                                 text = marketText,

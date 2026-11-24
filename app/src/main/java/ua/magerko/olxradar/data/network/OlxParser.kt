@@ -244,6 +244,7 @@ object OlxParser {
         if (targetCatId != null && listing.categoryId != null) {
             if (!isCategoryOrSubcategory(listing.categoryId, targetCatId)) {
                 Log.d(TAG, "Категория лота ${listing.categoryId} отличается от целевой $targetCatId")
+                return false
             }
         }
 

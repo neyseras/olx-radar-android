@@ -4,11 +4,11 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -16,306 +16,323 @@ import androidx.compose.ui.graphics.Color
 import ua.magerko.olxradar.service.MonitorService
 
 /**
- * Доступные темы оформления.
+ * Доступные темы оформления приложения.
  */
-enum class ThemeMode(val title: String, val subtitle: String, val isDark: Boolean) {
-    CYBER("Кибернетика", "Тёмная фирменная тема", true),
-    GLASS("Liquid Glass", "Стекло с преломлением (Android 13+)", true),
-    EMERALD("Изумруд", "Тёмная зелёная тема", true),
-    AMETHYST("Аметист", "Тёмная фиолетовая тема", true),
-    WHITE("Белая", "Светлая чистая тема", false),
-    GRAY("Серая", "Мягкая нейтральная тема", false);
+enum class ThemeMode(
+    val title: String,
+    val subtitle: String,
+    val isDark: Boolean,
+    val primaryPreview: Color,
+    val surfacePreview: Color
+) {
+    CYBER("Кибернетика", "Неоновый тёмный контраст", true, Color(0xFF00E5FF), Color(0xFF0A0F1D)),
+    GLASS("Liquid Glass", "Полупрозрачное стекло и градиент", true, Color(0xFF38BDF8), Color(0xFF0F172A)),
+    EMERALD("Изумруд", "Глубокая ночная зелень", true, Color(0xFF10B981), Color(0xFF091410)),
+    AMETHYST("Аметист", "Космический фиолетовый", true, Color(0xFFA855F7), Color(0xFF100C1E)),
+    WHITE("Светлая", "Чистая контрастная классика", false, Color(0xFF2563EB), Color(0xFFFFFFFF)),
+    GRAY("Графит", "Скандинавский минимализм", false, Color(0xFF4B5563), Color(0xFFF3F4F6));
 
     companion object {
         fun fromId(id: String?): ThemeMode = entries.firstOrNull { it.name == id } ?: CYBER
     }
 }
 
+/** Текущий активный режим темы (Compose State) */
+var currentThemeMode by mutableStateOf(ThemeMode.CYBER)
+
 /**
- * Палитра приложения. Все цвета — state-переменные: при смене темы
- * каждый экран, читающий их, автоматически перерисовывается.
+ * Палитра приложения (реактивные цвета для Compose компонентов).
  */
-var CyberneticSurface by mutableStateOf(Color(0xFF0B1326))
-var CyberneticSurfaceContainer by mutableStateOf(Color(0xFF171F33))
-var CyberneticSurfaceContainerLow by mutableStateOf(Color(0xFF131B2E))
-var CyberneticSurfaceContainerLowest by mutableStateOf(Color(0xFF060E20))
-var CyberneticSurfaceContainerHigh by mutableStateOf(Color(0xFF222A3D))
-var CyberneticSurfaceContainerHighest by mutableStateOf(Color(0xFF2D3449))
-var CyberneticSurfaceBright by mutableStateOf(Color(0xFF31394D))
+var CyberneticSurface by mutableStateOf(Color(0xFF0A0F1D))
+var CyberneticSurfaceContainer by mutableStateOf(Color(0xFF141C30))
+var CyberneticSurfaceContainerLow by mutableStateOf(Color(0xFF0E1526))
+var CyberneticSurfaceContainerLowest by mutableStateOf(Color(0xFF070B16))
+var CyberneticSurfaceContainerHigh by mutableStateOf(Color(0xFF1C2742))
+var CyberneticSurfaceContainerHighest by mutableStateOf(Color(0xFF263456))
+var CyberneticSurfaceBright by mutableStateOf(Color(0xFF2E3E66))
 
-var CyberneticPrimary by mutableStateOf(Color(0xFF4CD7F6))
-var CyberneticOnPrimary by mutableStateOf(Color(0xFF003640))
-var CyberneticPrimaryContainer by mutableStateOf(Color(0xFF06B6D4))
-var CyberneticOnPrimaryContainer by mutableStateOf(Color(0xFF00424F))
+var CyberneticPrimary by mutableStateOf(Color(0xFF00E5FF))
+var CyberneticOnPrimary by mutableStateOf(Color(0xFF00363D))
+var CyberneticPrimaryContainer by mutableStateOf(Color(0xFF005662))
+var CyberneticOnPrimaryContainer by mutableStateOf(Color(0xFF8CF4FF))
 
-var CyberneticSecondary by mutableStateOf(Color(0xFF4EDEA3))
-var CyberneticOnSecondary by mutableStateOf(Color(0xFF003824))
-var CyberneticSecondaryContainer by mutableStateOf(Color(0xFF00A572))
-var CyberneticOnSecondaryContainer by mutableStateOf(Color(0xFF00311F))
+var CyberneticSecondary by mutableStateOf(Color(0xFF00E676))
+var CyberneticOnSecondary by mutableStateOf(Color(0xFF003919))
+var CyberneticSecondaryContainer by mutableStateOf(Color(0xFF005929))
+var CyberneticOnSecondaryContainer by mutableStateOf(Color(0xFF70FF9E))
 
-var CyberneticTertiary by mutableStateOf(Color(0xFFFFB95F))
-var CyberneticOnTertiary by mutableStateOf(Color(0xFF472A00))
-var CyberneticTertiaryContainer by mutableStateOf(Color(0xFFE79400))
-var CyberneticOnTertiaryContainer by mutableStateOf(Color(0xFF563400))
+var CyberneticTertiary by mutableStateOf(Color(0xFFFFB300))
+var CyberneticOnTertiary by mutableStateOf(Color(0xFF452B00))
+var CyberneticTertiaryContainer by mutableStateOf(Color(0xFF6B4300))
+var CyberneticOnTertiaryContainer by mutableStateOf(Color(0xFFFFDF9E))
 
-var CyberneticError by mutableStateOf(Color(0xFFFFB4AB))
-var CyberneticOnError by mutableStateOf(Color(0xFF690005))
+var CyberneticError by mutableStateOf(Color(0xFFFF5252))
+var CyberneticOnError by mutableStateOf(Color(0xFF490005))
 var CyberneticErrorContainer by mutableStateOf(Color(0xFF93000A))
 var CyberneticOnErrorContainer by mutableStateOf(Color(0xFFFFDAD6))
 
-var CyberneticOnSurface by mutableStateOf(Color(0xFFDAE2FD))
-var CyberneticOnSurfaceVariant by mutableStateOf(Color(0xFFBCC9CD))
-var CyberneticOutline by mutableStateOf(Color(0xFF869397))
-var CyberneticOutlineVariant by mutableStateOf(Color(0xFF3D494C))
+var CyberneticOnSurface by mutableStateOf(Color(0xFFF1F5F9))
+var CyberneticOnSurfaceVariant by mutableStateOf(Color(0xFF94A3B8))
+var CyberneticOutline by mutableStateOf(Color(0xFF64748B))
+var CyberneticOutlineVariant by mutableStateOf(Color(0xFF334155))
 
-/** Фон под стеклом: в Liquid Glass теме — мягкий многослойный градиент. */
-var CyberneticBackgroundGradientTop by mutableStateOf(Color(0xFF0B1326))
-var CyberneticBackgroundGradientBottom by mutableStateOf(Color(0xFF101B33))
+/** Градиент фона */
+var CyberneticBackgroundGradientTop by mutableStateOf(Color(0xFF0A0F1D))
+var CyberneticBackgroundGradientBottom by mutableStateOf(Color(0xFF111827))
 
-/** Активна ли тема Liquid Glass (стекло рисуется только на API 31+). */
+/** Флаг темы Liquid Glass */
 var isGlassTheme by mutableStateOf(false)
 
-/** Доступен ли настоящий шейдер преломления (Liquid Glass lens, API 33+). */
 val isLiquidGlassSupported: Boolean
     get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
 
-/** Возможен ли хотя бы blur-стекло (API 31+). */
 val isGlassFallbackSupported: Boolean
     get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
 private fun applyCyber() {
     isGlassTheme = false
-    CyberneticSurface = Color(0xFF0B1326)
-    CyberneticSurfaceContainer = Color(0xFF171F33)
-    CyberneticSurfaceContainerLow = Color(0xFF131B2E)
-    CyberneticSurfaceContainerLowest = Color(0xFF060E20)
-    CyberneticSurfaceContainerHigh = Color(0xFF222A3D)
-    CyberneticSurfaceContainerHighest = Color(0xFF2D3449)
-    CyberneticSurfaceBright = Color(0xFF31394D)
+    currentThemeMode = ThemeMode.CYBER
 
-    CyberneticPrimary = Color(0xFF4CD7F6)
-    CyberneticOnPrimary = Color(0xFF003640)
-    CyberneticPrimaryContainer = Color(0xFF06B6D4)
-    CyberneticOnPrimaryContainer = Color(0xFF00424F)
+    CyberneticSurface = Color(0xFF0A0F1D)
+    CyberneticSurfaceContainer = Color(0xFF141C30)
+    CyberneticSurfaceContainerLow = Color(0xFF0E1526)
+    CyberneticSurfaceContainerLowest = Color(0xFF070B16)
+    CyberneticSurfaceContainerHigh = Color(0xFF1C2742)
+    CyberneticSurfaceContainerHighest = Color(0xFF263456)
+    CyberneticSurfaceBright = Color(0xFF2E3E66)
 
-    CyberneticSecondary = Color(0xFF4EDEA3)
-    CyberneticOnSecondary = Color(0xFF003824)
-    CyberneticSecondaryContainer = Color(0xFF00A572)
-    CyberneticOnSecondaryContainer = Color(0xFF00311F)
+    CyberneticPrimary = Color(0xFF00E5FF)
+    CyberneticOnPrimary = Color(0xFF00363D)
+    CyberneticPrimaryContainer = Color(0xFF005662)
+    CyberneticOnPrimaryContainer = Color(0xFF8CF4FF)
 
-    CyberneticTertiary = Color(0xFFFFB95F)
-    CyberneticOnTertiary = Color(0xFF472A00)
-    CyberneticTertiaryContainer = Color(0xFFE79400)
-    CyberneticOnTertiaryContainer = Color(0xFF563400)
+    CyberneticSecondary = Color(0xFF00E676)
+    CyberneticOnSecondary = Color(0xFF003919)
+    CyberneticSecondaryContainer = Color(0xFF005929)
+    CyberneticOnSecondaryContainer = Color(0xFF70FF9E)
 
-    CyberneticError = Color(0xFFFFB4AB)
-    CyberneticOnError = Color(0xFF690005)
+    CyberneticTertiary = Color(0xFFFFB300)
+    CyberneticOnTertiary = Color(0xFF452B00)
+    CyberneticTertiaryContainer = Color(0xFF6B4300)
+    CyberneticOnTertiaryContainer = Color(0xFFFFDF9E)
+
+    CyberneticError = Color(0xFFFF5252)
+    CyberneticOnError = Color(0xFF490005)
     CyberneticErrorContainer = Color(0xFF93000A)
     CyberneticOnErrorContainer = Color(0xFFFFDAD6)
 
-    CyberneticOnSurface = Color(0xFFDAE2FD)
-    CyberneticOnSurfaceVariant = Color(0xFFBCC9CD)
-    CyberneticOutline = Color(0xFF869397)
-    CyberneticOutlineVariant = Color(0xFF3D494C)
+    CyberneticOnSurface = Color(0xFFF1F5F9)
+    CyberneticOnSurfaceVariant = Color(0xFF94A3B8)
+    CyberneticOutline = Color(0xFF64748B)
+    CyberneticOutlineVariant = Color(0xFF334155)
 
-    CyberneticBackgroundGradientTop = Color(0xFF0B1326)
-    CyberneticBackgroundGradientBottom = Color(0xFF101B33)
+    CyberneticBackgroundGradientTop = Color(0xFF070B16)
+    CyberneticBackgroundGradientBottom = Color(0xFF10172A)
 }
 
 private fun applyGlass() {
     isGlassTheme = true
-    // Полупрозрачные "стеклянные" контейнеры поверх живого градиента.
-    CyberneticSurface = Color(0xFF0E1220)
-    CyberneticSurfaceContainer = Color(0xB3222838)
-    CyberneticSurfaceContainerLow = Color(0x99191F2E)
-    CyberneticSurfaceContainerLowest = Color(0x66121620)
-    CyberneticSurfaceContainerHigh = Color(0xCC2B3346)
-    CyberneticSurfaceContainerHighest = Color(0xE6384158)
-    CyberneticSurfaceBright = Color(0xFF46516B)
+    currentThemeMode = ThemeMode.GLASS
 
-    CyberneticPrimary = Color(0xFF6FE3FF)
-    CyberneticOnPrimary = Color(0xFF003443)
-    CyberneticPrimaryContainer = Color(0xFF22C3E6)
-    CyberneticOnPrimaryContainer = Color(0xFF004250)
+    CyberneticSurface = Color(0xFF0B1120)
+    CyberneticSurfaceContainer = Color(0xB81E293B)
+    CyberneticSurfaceContainerLow = Color(0x940F172A)
+    CyberneticSurfaceContainerLowest = Color(0x70020617)
+    CyberneticSurfaceContainerHigh = Color(0xCC334155)
+    CyberneticSurfaceContainerHighest = Color(0xE0475569)
+    CyberneticSurfaceBright = Color(0xFF64748B)
 
-    CyberneticSecondary = Color(0xFF67E8AC)
-    CyberneticOnSecondary = Color(0xFF003824)
-    CyberneticSecondaryContainer = Color(0xFF00A572)
-    CyberneticOnSecondaryContainer = Color(0xFF00311F)
+    CyberneticPrimary = Color(0xFF38BDF8)
+    CyberneticOnPrimary = Color(0xFF003247)
+    CyberneticPrimaryContainer = Color(0xFF0284C7)
+    CyberneticOnPrimaryContainer = Color(0xFFE0F2FE)
 
-    CyberneticTertiary = Color(0xFFFFC278)
-    CyberneticOnTertiary = Color(0xFF472A00)
-    CyberneticTertiaryContainer = Color(0xFFE79400)
-    CyberneticOnTertiaryContainer = Color(0xFF563400)
+    CyberneticSecondary = Color(0xFF34D399)
+    CyberneticOnSecondary = Color(0xFF003822)
+    CyberneticSecondaryContainer = Color(0xFF059669)
+    CyberneticOnSecondaryContainer = Color(0xFFD1FAE5)
 
-    CyberneticError = Color(0xFFFFB4AB)
-    CyberneticOnError = Color(0xFF690005)
-    CyberneticErrorContainer = Color(0xFF93000A)
-    CyberneticOnErrorContainer = Color(0xFFFFDAD6)
+    CyberneticTertiary = Color(0xFFFBBF24)
+    CyberneticOnTertiary = Color(0xFF452B00)
+    CyberneticTertiaryContainer = Color(0xFFD97706)
+    CyberneticOnTertiaryContainer = Color(0xFFFEF3C7)
 
-    CyberneticOnSurface = Color(0xFFE6ECFF)
-    CyberneticOnSurfaceVariant = Color(0xFFC4CFD6)
-    CyberneticOutline = Color(0xFF9AA6AC)
-    CyberneticOutlineVariant = Color(0xFF49545E)
+    CyberneticError = Color(0xFFF87171)
+    CyberneticOnError = Color(0xFF500000)
+    CyberneticErrorContainer = Color(0xFFDC2626)
+    CyberneticOnErrorContainer = Color(0xFFFEE2E2)
 
-    CyberneticBackgroundGradientTop = Color(0xFF0A0F1E)
-    CyberneticBackgroundGradientBottom = Color(0xFF1B2B4D)
-}
+    CyberneticOnSurface = Color(0xFFF8FAFC)
+    CyberneticOnSurfaceVariant = Color(0xFFCBD5E1)
+    CyberneticOutline = Color(0xFF94A3B8)
+    CyberneticOutlineVariant = Color(0xFF475569)
 
-private fun applyWhite() {
-    isGlassTheme = false
-    CyberneticSurface = Color(0xFFFFFFFF)
-    CyberneticSurfaceContainer = Color(0xFFF5F7FA)
-    CyberneticSurfaceContainerLow = Color(0xFFFAFBFD)
-    CyberneticSurfaceContainerLowest = Color(0xFFFFFFFF)
-    CyberneticSurfaceContainerHigh = Color(0xFFEFF2F6)
-    CyberneticSurfaceContainerHighest = Color(0xFFE4E9F0)
-    CyberneticSurfaceBright = Color(0xFFEFF2F6)
-
-    CyberneticPrimary = Color(0xFF0A84D6)
-    CyberneticOnPrimary = Color(0xFFFFFFFF)
-    CyberneticPrimaryContainer = Color(0xFF3FB2F5)
-    CyberneticOnPrimaryContainer = Color(0xFF00344F)
-
-    CyberneticSecondary = Color(0xFF0FA968)
-    CyberneticOnSecondary = Color(0xFFFFFFFF)
-    CyberneticSecondaryContainer = Color(0xFF35D28F)
-    CyberneticOnSecondaryContainer = Color(0xFF00331F)
-
-    CyberneticTertiary = Color(0xFFF29B1B)
-    CyberneticOnTertiary = Color(0xFFFFFFFF)
-    CyberneticTertiaryContainer = Color(0xFFFFB95F)
-    CyberneticOnTertiaryContainer = Color(0xFF4A2E00)
-
-    CyberneticError = Color(0xFFC62828)
-    CyberneticOnError = Color(0xFFFFFFFF)
-    CyberneticErrorContainer = Color(0xFFFFDAD6)
-    CyberneticOnErrorContainer = Color(0xFF410002)
-
-    CyberneticOnSurface = Color(0xFF161B22)
-    CyberneticOnSurfaceVariant = Color(0xFF48505C)
-    CyberneticOutline = Color(0xFF79818D)
-    CyberneticOutlineVariant = Color(0xFFD8DEE6)
-
-    CyberneticBackgroundGradientTop = Color(0xFFFFFFFF)
-    CyberneticBackgroundGradientBottom = Color(0xFFF2F5F9)
-}
-
-private fun applyGray() {
-    isGlassTheme = false
-    CyberneticSurface = Color(0xFFECECEE)
-    CyberneticSurfaceContainer = Color(0xFFE0E1E5)
-    CyberneticSurfaceContainerLow = Color(0xFFF1F1F4)
-    CyberneticSurfaceContainerLowest = Color(0xFFFFFFFF)
-    CyberneticSurfaceContainerHigh = Color(0xFFD6D7DC)
-    CyberneticSurfaceContainerHighest = Color(0xFFC9CACF)
-    CyberneticSurfaceBright = Color(0xFFF4F4F6)
-
-    CyberneticPrimary = Color(0xFF4C566A)
-    CyberneticOnPrimary = Color(0xFFFFFFFF)
-    CyberneticPrimaryContainer = Color(0xFF7B87A3)
-    CyberneticOnPrimaryContainer = Color(0xFF1E2430)
-
-    CyberneticSecondary = Color(0xFF5A8774)
-    CyberneticOnSecondary = Color(0xFFFFFFFF)
-    CyberneticSecondaryContainer = Color(0xFF83B39E)
-    CyberneticOnSecondaryContainer = Color(0xFF1E2A24)
-
-    CyberneticTertiary = Color(0xFFA9814B)
-    CyberneticOnTertiary = Color(0xFFFFFFFF)
-    CyberneticTertiaryContainer = Color(0xFFCBA878)
-    CyberneticOnTertiaryContainer = Color(0xFF2E2312)
-
-    CyberneticError = Color(0xFFB3403A)
-    CyberneticOnError = Color(0xFFFFFFFF)
-    CyberneticErrorContainer = Color(0xFFE8B9B4)
-    CyberneticOnErrorContainer = Color(0xFF3A0A07)
-
-    CyberneticOnSurface = Color(0xFF1D1F23)
-    CyberneticOnSurfaceVariant = Color(0xFF4A4D55)
-    CyberneticOutline = Color(0xFF7B7E86)
-    CyberneticOutlineVariant = Color(0xFFC6C8CD)
-
-    CyberneticBackgroundGradientTop = Color(0xFFECECEE)
-    CyberneticBackgroundGradientBottom = Color(0xFFE2E3E7)
+    CyberneticBackgroundGradientTop = Color(0xFF090D1A)
+    CyberneticBackgroundGradientBottom = Color(0xFF1E293B)
 }
 
 private fun applyEmerald() {
     isGlassTheme = false
-    CyberneticSurface = Color(0xFF0A1512)
-    CyberneticSurfaceContainer = Color(0xFF16241E)
-    CyberneticSurfaceContainerLow = Color(0xFF122019)
-    CyberneticSurfaceContainerLowest = Color(0xFF050D0A)
-    CyberneticSurfaceContainerHigh = Color(0xFF1E3027)
-    CyberneticSurfaceContainerHighest = Color(0xFF273A30)
-    CyberneticSurfaceBright = Color(0xFF2B4034)
+    currentThemeMode = ThemeMode.EMERALD
 
-    CyberneticPrimary = Color(0xFF5BE49B)
-    CyberneticOnPrimary = Color(0xFF00391E)
-    CyberneticPrimaryContainer = Color(0xFF00B86B)
-    CyberneticOnPrimaryContainer = Color(0xFF00291A)
+    CyberneticSurface = Color(0xFF091410)
+    CyberneticSurfaceContainer = Color(0xFF10241D)
+    CyberneticSurfaceContainerLow = Color(0xFF0C1B15)
+    CyberneticSurfaceContainerLowest = Color(0xFF050C0A)
+    CyberneticSurfaceContainerHigh = Color(0xFF18362B)
+    CyberneticSurfaceContainerHighest = Color(0xFF224A3B)
+    CyberneticSurfaceBright = Color(0xFF2F6350)
 
-    CyberneticSecondary = Color(0xFF7DD3FC)
-    CyberneticOnSecondary = Color(0xFF003251)
-    CyberneticSecondaryContainer = Color(0xFF0090D4)
-    CyberneticOnSecondaryContainer = Color(0xFF00253C)
+    CyberneticPrimary = Color(0xFF10B981)
+    CyberneticOnPrimary = Color(0xFF003824)
+    CyberneticPrimaryContainer = Color(0xFF059669)
+    CyberneticOnPrimaryContainer = Color(0xFFA7F3D0)
 
-    CyberneticTertiary = Color(0xFFFFC46B)
-    CyberneticOnTertiary = Color(0xFF472A00)
-    CyberneticTertiaryContainer = Color(0xFFE79400)
-    CyberneticOnTertiaryContainer = Color(0xFF563400)
+    CyberneticSecondary = Color(0xFF38BDF8)
+    CyberneticOnSecondary = Color(0xFF00354A)
+    CyberneticSecondaryContainer = Color(0xFF0284C7)
+    CyberneticOnSecondaryContainer = Color(0xFFBAE6FD)
 
-    CyberneticError = Color(0xFFFFB4AB)
-    CyberneticOnError = Color(0xFF690005)
-    CyberneticErrorContainer = Color(0xFF93000A)
-    CyberneticOnErrorContainer = Color(0xFFFFDAD6)
+    CyberneticTertiary = Color(0xFFF59E0B)
+    CyberneticOnTertiary = Color(0xFF452B00)
+    CyberneticTertiaryContainer = Color(0xFFB45309)
+    CyberneticOnTertiaryContainer = Color(0xFFFDE68A)
 
-    CyberneticOnSurface = Color(0xFFDCEFE3)
-    CyberneticOnSurfaceVariant = Color(0xFFB7C9BF)
-    CyberneticOutline = Color(0xFF82958B)
-    CyberneticOutlineVariant = Color(0xFF384A41)
+    CyberneticError = Color(0xFFEF4444)
+    CyberneticOnError = Color(0xFF490005)
+    CyberneticErrorContainer = Color(0xFFB91C1C)
+    CyberneticOnErrorContainer = Color(0xFFFEE2E2)
 
-    CyberneticBackgroundGradientTop = Color(0xFF08130F)
-    CyberneticBackgroundGradientBottom = Color(0xFF143324)
+    CyberneticOnSurface = Color(0xFFECFDF5)
+    CyberneticOnSurfaceVariant = Color(0xFFA7F3D0)
+    CyberneticOutline = Color(0xFF6EE7B7)
+    CyberneticOutlineVariant = Color(0xFF065F46)
+
+    CyberneticBackgroundGradientTop = Color(0xFF060D0A)
+    CyberneticBackgroundGradientBottom = Color(0xFF122820)
 }
 
 private fun applyAmethyst() {
     isGlassTheme = false
-    CyberneticSurface = Color(0xFF120E1F)
-    CyberneticSurfaceContainer = Color(0xFF1E1830)
-    CyberneticSurfaceContainerLow = Color(0xFF191428)
-    CyberneticSurfaceContainerLowest = Color(0xFF0A0714)
-    CyberneticSurfaceContainerHigh = Color(0xFF282040)
-    CyberneticSurfaceContainerHighest = Color(0xFF322A50)
-    CyberneticSurfaceBright = Color(0xFF362E55)
+    currentThemeMode = ThemeMode.AMETHYST
 
-    CyberneticPrimary = Color(0xFFC4A5FF)
-    CyberneticOnPrimary = Color(0xFF2E1065)
-    CyberneticPrimaryContainer = Color(0xFF8B5CF6)
-    CyberneticOnPrimaryContainer = Color(0xFF230A4E)
+    CyberneticSurface = Color(0xFF100C1E)
+    CyberneticSurfaceContainer = Color(0xFF1B1533)
+    CyberneticSurfaceContainerLow = Color(0xFF140F26)
+    CyberneticSurfaceContainerLowest = Color(0xFF0B0815)
+    CyberneticSurfaceContainerHigh = Color(0xFF261D47)
+    CyberneticSurfaceContainerHighest = Color(0xFF34285F)
+    CyberneticSurfaceBright = Color(0xFF45367D)
 
-    CyberneticSecondary = Color(0xFFF9A8D4)
-    CyberneticOnSecondary = Color(0xFF3F0D2B)
-    CyberneticSecondaryContainer = Color(0xFFDB2777)
-    CyberneticOnSecondaryContainer = Color(0xFF330A24)
+    CyberneticPrimary = Color(0xFFA855F7)
+    CyberneticOnPrimary = Color(0xFF380068)
+    CyberneticPrimaryContainer = Color(0xFF7E22CE)
+    CyberneticOnPrimaryContainer = Color(0xFFF3E8FF)
 
-    CyberneticTertiary = Color(0xFF67E8F9)
-    CyberneticOnTertiary = Color(0xFF003444)
-    CyberneticTertiaryContainer = Color(0xFF0891B2)
-    CyberneticOnTertiaryContainer = Color(0xFF002733)
+    CyberneticSecondary = Color(0xFF06B6D4)
+    CyberneticOnSecondary = Color(0xFF003640)
+    CyberneticSecondaryContainer = Color(0xFF0891B2)
+    CyberneticOnSecondaryContainer = Color(0xFFCFFAFE)
 
-    CyberneticError = Color(0xFFFFB4AB)
-    CyberneticOnError = Color(0xFF690005)
+    CyberneticTertiary = Color(0xFFEC4899)
+    CyberneticOnTertiary = Color(0xFF4A0028)
+    CyberneticTertiaryContainer = Color(0xFFBE185D)
+    CyberneticOnTertiaryContainer = Color(0xFFFCE7F3)
+
+    CyberneticError = Color(0xFFFF5252)
+    CyberneticOnError = Color(0xFF490005)
     CyberneticErrorContainer = Color(0xFF93000A)
     CyberneticOnErrorContainer = Color(0xFFFFDAD6)
 
-    CyberneticOnSurface = Color(0xFFE9E4FA)
-    CyberneticOnSurfaceVariant = Color(0xFFC6BDDD)
-    CyberneticOutline = Color(0xFF948BA8)
-    CyberneticOutlineVariant = Color(0xFF433D58)
+    CyberneticOnSurface = Color(0xFFF5F3FF)
+    CyberneticOnSurfaceVariant = Color(0xFFDDD6FE)
+    CyberneticOutline = Color(0xFFA78BFA)
+    CyberneticOutlineVariant = Color(0xFF581C87)
 
-    CyberneticBackgroundGradientTop = Color(0xFF0E0A1A)
-    CyberneticBackgroundGradientBottom = Color(0xFF261A46)
+    CyberneticBackgroundGradientTop = Color(0xFF0B0815)
+    CyberneticBackgroundGradientBottom = Color(0xFF1E1738)
+}
+
+private fun applyWhite() {
+    isGlassTheme = false
+    currentThemeMode = ThemeMode.WHITE
+
+    CyberneticSurface = Color(0xFFFFFFFF)
+    CyberneticSurfaceContainer = Color(0xFFF8FAFC)
+    CyberneticSurfaceContainerLow = Color(0xFFFFFFFF)
+    CyberneticSurfaceContainerLowest = Color(0xFFF1F5F9)
+    CyberneticSurfaceContainerHigh = Color(0xFFE2E8F0)
+    CyberneticSurfaceContainerHighest = Color(0xFFCBD5E1)
+    CyberneticSurfaceBright = Color(0xFFFFFFFF)
+
+    CyberneticPrimary = Color(0xFF2563EB)
+    CyberneticOnPrimary = Color(0xFFFFFFFF)
+    CyberneticPrimaryContainer = Color(0xFFDBEAFE)
+    CyberneticOnPrimaryContainer = Color(0xFF1E40AF)
+
+    CyberneticSecondary = Color(0xFF059669)
+    CyberneticOnSecondary = Color(0xFFFFFFFF)
+    CyberneticSecondaryContainer = Color(0xFFD1FAE5)
+    CyberneticOnSecondaryContainer = Color(0xFF065F46)
+
+    CyberneticTertiary = Color(0xFFD97706)
+    CyberneticOnTertiary = Color(0xFFFFFFFF)
+    CyberneticTertiaryContainer = Color(0xFFFEF3C7)
+    CyberneticOnTertiaryContainer = Color(0xFF92400E)
+
+    CyberneticError = Color(0xFFDC2626)
+    CyberneticOnError = Color(0xFFFFFFFF)
+    CyberneticErrorContainer = Color(0xFFFEE2E2)
+    CyberneticOnErrorContainer = Color(0xFF991B1B)
+
+    CyberneticOnSurface = Color(0xFF0F172A)
+    CyberneticOnSurfaceVariant = Color(0xFF475569)
+    CyberneticOutline = Color(0xFF94A3B8)
+    CyberneticOutlineVariant = Color(0xFFE2E8F0)
+
+    CyberneticBackgroundGradientTop = Color(0xFFFFFFFF)
+    CyberneticBackgroundGradientBottom = Color(0xFFF8FAFC)
+}
+
+private fun applyGray() {
+    isGlassTheme = false
+    currentThemeMode = ThemeMode.GRAY
+
+    CyberneticSurface = Color(0xFFF3F4F6)
+    CyberneticSurfaceContainer = Color(0xFFE5E7EB)
+    CyberneticSurfaceContainerLow = Color(0xFFF9FAFB)
+    CyberneticSurfaceContainerLowest = Color(0xFFFFFFFF)
+    CyberneticSurfaceContainerHigh = Color(0xFFD1D5DB)
+    CyberneticSurfaceContainerHighest = Color(0xFF9CA3AF)
+    CyberneticSurfaceBright = Color(0xFFFFFFFF)
+
+    CyberneticPrimary = Color(0xFF374151)
+    CyberneticOnPrimary = Color(0xFFFFFFFF)
+    CyberneticPrimaryContainer = Color(0xFFE5E7EB)
+    CyberneticOnPrimaryContainer = Color(0xFF111827)
+
+    CyberneticSecondary = Color(0xFF10B981)
+    CyberneticOnSecondary = Color(0xFFFFFFFF)
+    CyberneticSecondaryContainer = Color(0xFFD1FAE5)
+    CyberneticOnSecondaryContainer = Color(0xFF065F46)
+
+    CyberneticTertiary = Color(0xFFD97706)
+    CyberneticOnTertiary = Color(0xFFFFFFFF)
+    CyberneticTertiaryContainer = Color(0xFFFEF3C7)
+    CyberneticOnTertiaryContainer = Color(0xFF92400E)
+
+    CyberneticError = Color(0xFFDC2626)
+    CyberneticOnError = Color(0xFFFFFFFF)
+    CyberneticErrorContainer = Color(0xFFFEE2E2)
+    CyberneticOnErrorContainer = Color(0xFF991B1B)
+
+    CyberneticOnSurface = Color(0xFF111827)
+    CyberneticOnSurfaceVariant = Color(0xFF4B5563)
+    CyberneticOutline = Color(0xFF6B7280)
+    CyberneticOutlineVariant = Color(0xFFD1D5DB)
+
+    CyberneticBackgroundGradientTop = Color(0xFFF9FAFB)
+    CyberneticBackgroundGradientBottom = Color(0xFFE5E7EB)
 }
 
 fun applyThemeMode(mode: ThemeMode) {
@@ -344,65 +361,70 @@ object ThemePreferences {
         prefs.edit().putString(KEY, mode.name).apply()
         applyThemeMode(mode)
     }
-
-
 }
-
-private val CyberneticDarkColorScheme = darkColorScheme(
-    primary = CyberneticPrimary,
-    onPrimary = CyberneticOnPrimary,
-    primaryContainer = CyberneticPrimaryContainer,
-    onPrimaryContainer = CyberneticOnPrimaryContainer,
-    secondary = CyberneticSecondary,
-    onSecondary = CyberneticOnSecondary,
-    secondaryContainer = CyberneticSecondaryContainer,
-    onSecondaryContainer = CyberneticOnSecondaryContainer,
-    tertiary = CyberneticTertiary,
-    onTertiary = CyberneticOnTertiary,
-    tertiaryContainer = CyberneticTertiaryContainer,
-    onTertiaryContainer = CyberneticOnTertiaryContainer,
-    error = CyberneticError,
-    onError = CyberneticOnError,
-    errorContainer = CyberneticErrorContainer,
-    onErrorContainer = CyberneticOnErrorContainer,
-    background = CyberneticSurface,
-    onBackground = CyberneticOnSurface,
-    surface = CyberneticSurface,
-    onSurface = CyberneticOnSurface,
-    surfaceVariant = CyberneticSurfaceContainerHighest,
-    onSurfaceVariant = CyberneticOnSurfaceVariant,
-    outline = CyberneticOutline,
-    outlineVariant = CyberneticOutlineVariant
-)
-
-private val LightColorScheme = lightColorScheme(
-    primary = CyberneticPrimary,
-    onPrimary = CyberneticOnPrimary,
-    primaryContainer = CyberneticPrimaryContainer,
-    onPrimaryContainer = CyberneticOnPrimaryContainer,
-    secondary = CyberneticSecondary,
-    onSecondary = CyberneticOnSecondary,
-    tertiary = CyberneticTertiary,
-    onTertiary = CyberneticOnTertiary,
-    error = CyberneticError,
-    onError = CyberneticOnError,
-    background = CyberneticSurface,
-    onBackground = CyberneticOnSurface,
-    surface = CyberneticSurface,
-    onSurface = CyberneticOnSurface,
-    surfaceVariant = CyberneticSurfaceContainerHighest,
-    onSurfaceVariant = CyberneticOnSurfaceVariant,
-    outline = CyberneticOutline,
-    outlineVariant = CyberneticOutlineVariant
-)
 
 @Composable
 fun CyberneticRadarTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
+    val isDark = currentThemeMode.isDark || isGlassTheme || darkTheme
+    val colorScheme = if (isDark) {
+        darkColorScheme(
+            primary = CyberneticPrimary,
+            onPrimary = CyberneticOnPrimary,
+            primaryContainer = CyberneticPrimaryContainer,
+            onPrimaryContainer = CyberneticOnPrimaryContainer,
+            secondary = CyberneticSecondary,
+            onSecondary = CyberneticOnSecondary,
+            secondaryContainer = CyberneticSecondaryContainer,
+            onSecondaryContainer = CyberneticOnSecondaryContainer,
+            tertiary = CyberneticTertiary,
+            onTertiary = CyberneticOnTertiary,
+            tertiaryContainer = CyberneticTertiaryContainer,
+            onTertiaryContainer = CyberneticOnTertiaryContainer,
+            error = CyberneticError,
+            onError = CyberneticOnError,
+            errorContainer = CyberneticErrorContainer,
+            onErrorContainer = CyberneticOnErrorContainer,
+            background = CyberneticSurface,
+            onBackground = CyberneticOnSurface,
+            surface = CyberneticSurface,
+            onSurface = CyberneticOnSurface,
+            surfaceVariant = CyberneticSurfaceContainerHighest,
+            onSurfaceVariant = CyberneticOnSurfaceVariant,
+            outline = CyberneticOutline,
+            outlineVariant = CyberneticOutlineVariant
+        )
+    } else {
+        lightColorScheme(
+            primary = CyberneticPrimary,
+            onPrimary = CyberneticOnPrimary,
+            primaryContainer = CyberneticPrimaryContainer,
+            onPrimaryContainer = CyberneticOnPrimaryContainer,
+            secondary = CyberneticSecondary,
+            onSecondary = CyberneticOnSecondary,
+            secondaryContainer = CyberneticSecondaryContainer,
+            onSecondaryContainer = CyberneticOnSecondaryContainer,
+            tertiary = CyberneticTertiary,
+            onTertiary = CyberneticOnTertiary,
+            error = CyberneticError,
+            onError = CyberneticOnError,
+            errorContainer = CyberneticErrorContainer,
+            onErrorContainer = CyberneticOnErrorContainer,
+            background = CyberneticSurface,
+            onBackground = CyberneticOnSurface,
+            surface = CyberneticSurface,
+            onSurface = CyberneticOnSurface,
+            surfaceVariant = CyberneticSurfaceContainerHighest,
+            onSurfaceVariant = CyberneticOnSurfaceVariant,
+            outline = CyberneticOutline,
+            outlineVariant = CyberneticOutlineVariant
+        )
+    }
+
     MaterialTheme(
-        colorScheme = if (isGlassTheme || darkTheme) CyberneticDarkColorScheme else LightColorScheme,
+        colorScheme = colorScheme,
         content = content
     )
 }
