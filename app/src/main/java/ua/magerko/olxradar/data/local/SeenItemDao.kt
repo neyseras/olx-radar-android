@@ -45,17 +45,31 @@ abstract class SeenItemDao {
         listingId: Long,
         lastPushedAt: Long?,
         lastPrice: Int? = null,
+        lastCurrency: String? = null,
         maxLimit: Int = 2000
     ) {
+        val prev = if (lastPrice == null) getSeenItem(watchId, listingId) else null
         insertOrReplace(
             SeenItem(
                 watchId = watchId,
                 listingId = listingId,
                 lastPushedAt = lastPushedAt,
-                lastPrice = lastPrice,
+                lastPrice = lastPrice ?: prev?.lastPrice,
+                lastCurrency = if (lastPrice != null) lastCurrency else prev?.lastCurrency,
                 addedAt = System.currentTimeMillis()
             )
         )
+        pruneOldSeenItems(watchId, maxLimit)
+    }
+
+    @Transaction
+    open suspend fun markSeenBatchAndPrune(
+        watchId: Long,
+        items: List<SeenItem>,
+        maxLimit: Int = 2000
+    ) {
+        if (items.isEmpty()) return
+        insertOrReplaceAll(items)
         pruneOldSeenItems(watchId, maxLimit)
     }
 }

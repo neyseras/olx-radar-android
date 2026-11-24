@@ -11,10 +11,12 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import org.json.JSONObject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -26,6 +28,8 @@ class ChromiumBridge(private val context: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var webView: WebView? = null
+    @Volatile
+    private var basePageReady: CompletableDeferred<Unit> = CompletableDeferred()
     private val pendingRequests = ConcurrentHashMap<String, CompletableDeferred<String>>()
     private val idCounter = AtomicLong(0)
 
@@ -39,6 +43,7 @@ class ChromiumBridge(private val context: Context) {
     private fun initWebView() {
         try {
             destroyWebView()
+            basePageReady = CompletableDeferred()
             val wv = WebView(context.applicationContext)
             val cookieManager = android.webkit.CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
@@ -52,6 +57,12 @@ class ChromiumBridge(private val context: Context) {
                 "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
 
             wv.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    if (url != null && url.startsWith("https://www.olx.ua")) {
+                        basePageReady.complete(Unit)
+                    }
+                }
+
                 override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
                     val didCrash = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                         detail?.didCrash()
@@ -64,14 +75,13 @@ class ChromiumBridge(private val context: Context) {
                     )
                     destroyWebView()
                     initWebView()
-                    // Fail pending requests so callers don't hang and can retry
                     val ex = RuntimeException("WebView renderer process gone")
                     ua.magerko.olxradar.util.AppLog.w(TAG, "Процесс WebView упал — пересоздаю")
                     val keys = pendingRequests.keys().toList()
                     for (k in keys) {
                         pendingRequests.remove(k)?.completeExceptionally(ex)
                     }
-                    return true // Return true to indicate crash was handled
+                    return true
                 }
             }
             wv.addJavascriptInterface(JsInterface(), "ChromiumBridge")
@@ -79,8 +89,18 @@ class ChromiumBridge(private val context: Context) {
             wv.loadDataWithBaseURL("https://www.olx.ua", "<html><body></body></html>", "text/html", "UTF-8", null)
             webView = wv
         } catch (e: Exception) {
+            basePageReady.completeExceptionally(e)
             ua.magerko.olxradar.util.AppLog.w(TAG, "Не удалось создать WebView", e)
         }
+    }
+
+    fun destroy() {
+        val ex = CancellationException("ChromiumBridge destroyed")
+        val keys = pendingRequests.keys().toList()
+        for (k in keys) {
+            pendingRequests.remove(k)?.completeExceptionally(ex)
+        }
+        mainHandler.post { destroyWebView() }
     }
 
     private fun destroyWebView() {
@@ -133,6 +153,18 @@ class ChromiumBridge(private val context: Context) {
 
         withContext(Dispatchers.Main) {
             ensureWebView()
+        }
+        // Ждём коммита https://www.olx.ua (до 3с), чтобы fetch не упал с CORS на about:blank
+        withTimeoutOrNull(3000L) {
+            runCatching { basePageReady.await() }
+        }
+
+        withContext(Dispatchers.Main) {
+            val wv = webView
+            if (wv == null) {
+                pendingRequests.remove(reqId)?.completeExceptionally(IllegalStateException("WebView unavailable"))
+                return@withContext
+            }
             val quotedUrl = JSONObject.quote(url)
             val js = """
                 (function() {
@@ -172,7 +204,7 @@ class ChromiumBridge(private val context: Context) {
                 })();
             """.trimIndent()
 
-            webView?.evaluateJavascript(js, null)
+            wv.evaluateJavascript(js, null)
         }
 
         return try {

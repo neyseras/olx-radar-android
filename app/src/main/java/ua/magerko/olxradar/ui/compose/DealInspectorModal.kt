@@ -10,9 +10,12 @@ import android.text.Html
 import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -26,24 +29,35 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.text.style.TextDecoration
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Precision
 import ua.magerko.olxradar.ai.AiAnalysisResult
 import ua.magerko.olxradar.data.model.ConditionAnalyzer
 import ua.magerko.olxradar.data.model.Finding
+import ua.magerko.olxradar.data.model.PriceHistory
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DealInspectorModal(
     finding: Finding,
@@ -51,14 +65,21 @@ fun DealInspectorModal(
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     onDismiss: () -> Unit,
     onDelete: () -> Unit = {},
+    onToggleFavorite: () -> Unit = {},
     onOpenUrl: (String) -> Unit = {},
     onRetryAi: () -> Unit = {},
     isRetryingAi: Boolean = false,
-    marketPrice: Int? = null
+    marketPrice: Int? = null,
+    priceHistory: List<PriceHistory> = emptyList(),
+    onBlockSeller: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     var isDescExpanded by remember { mutableStateOf(false) }
-    var isFavorite by remember { mutableStateOf(false) }
+    var zoomGalleryPage by remember { mutableStateOf<Int?>(null) }
+    val isFavorite = finding.isFavorite
+    val photoGallery = remember(finding.photoUrlsJson, finding.photoUrl) {
+        finding.parsedPhotoUrls()
+    }
 
     val localeRu = remember { Locale("ru") }
 
@@ -127,20 +148,12 @@ fun DealInspectorModal(
 
     fun openUrlDirectly() {
         onOpenUrl(finding.url)
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(finding.url)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
-        }
     }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = CyberneticSurfaceContainer,
+        containerColor = CyberneticModalSurface,
         contentColor = CyberneticOnSurface,
         dragHandle = {
             Column(
@@ -298,21 +311,67 @@ fun DealInspectorModal(
                     }
                 }
 
-                // Image Banner
+                // Image Banner / Multi-photo Pager
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(230.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .height(236.dp)
+                        .clip(RoundedCornerShape(18.dp))
                         .background(CyberneticSurfaceContainerLowest)
                 ) {
-                    if (!finding.photoUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = finding.photoUrl,
-                            contentDescription = finding.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
+                    if (photoGallery.isNotEmpty()) {
+                        val pagerState = rememberPagerState(pageCount = { photoGallery.size })
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize()
+                        ) { page ->
+                            val url = photoGallery[page]
+                            val req = remember(url) {
+                                ImageRequest.Builder(context)
+                                    .data(url)
+                                    .size(900, 680)
+                                    .precision(Precision.INEXACT)
+                                    .crossfade(true)
+                                    .build()
+                            }
+                            AsyncImage(
+                                model = req,
+                                contentDescription = finding.title,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clickable { zoomGalleryPage = page },
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        // Photo counter chip
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = CyberneticSurfaceContainerLowest.copy(alpha = 0.85f),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PhotoLibrary,
+                                    contentDescription = null,
+                                    tint = CyberneticPrimary,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = if (photoGallery.size > 1) "${pagerState.currentPage + 1} / ${photoGallery.size} · Зум" else "OLX Фото · Зум",
+                                    color = CyberneticOnSurfaceVariant,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
                     } else {
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -366,34 +425,6 @@ fun DealInspectorModal(
                             }
                         }
                     }
-
-                    // Photo counter chip
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = CyberneticSurfaceContainerLowest.copy(alpha = 0.85f),
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PhotoLibrary,
-                                contentDescription = null,
-                                tint = CyberneticPrimary,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = "OLX Фото",
-                                color = CyberneticOnSurfaceVariant,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -404,35 +435,60 @@ fun DealInspectorModal(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val priceFormatted = if (finding.price != null && finding.price > 0) {
-                        val formattedNum = NumberFormat.getNumberInstance(Locale("uk", "UA")).format(finding.price)
-                        "$formattedNum ${finding.currency ?: "₴"}"
-                    } else {
-                        "Договорная"
+                    val priceFormatted = remember(finding.price, finding.currency) {
+                        CachedFormatters.formatPrice(finding.price, finding.currency)
                     }
-                    Column {
-                        Text(
-                            text = priceFormatted,
-                            color = CyberneticOnSurface,
-                            fontSize = 26.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = (-0.5).sp
-                        )
-                        if (marketPrice != null && marketPrice > 0 && finding.price != null && finding.price > 0) {
-                            val diffPercent = ((marketPrice - finding.price).toDouble() / marketPrice * 100).toInt()
-                            val cur = finding.currency ?: "₴"
-                            val formattedMarket = NumberFormat.getNumberInstance(Locale("uk", "UA")).format(marketPrice)
-                            val marketText = if (diffPercent > 0) {
-                                "Рынок: ~$formattedMarket $cur (-$diffPercent%)"
-                            } else {
-                                "Рынок: ~$formattedMarket $cur"
-                            }
+                    val oldPriceFormatted = remember(finding.oldPrice, finding.currency) {
+                        finding.oldPrice?.let { CachedFormatters.formatPrice(it, finding.currency) }
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Text(
-                                text = marketText,
-                                color = if (diffPercent > 0) CyberneticSecondary else CyberneticOnSurfaceVariant,
-                                fontSize = 13.sp,
-                                fontWeight = if (diffPercent > 0) FontWeight.Bold else FontWeight.Medium
+                                text = priceFormatted,
+                                color = CyberneticOnSurface,
+                                fontSize = 26.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = (-0.5).sp
                             )
+                            if (oldPriceFormatted != null) {
+                                Text(
+                                    text = oldPriceFormatted,
+                                    color = CyberneticOutline,
+                                    fontSize = 14.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    textDecoration = TextDecoration.LineThrough,
+                                    modifier = Modifier.padding(bottom = 4.dp)
+                                )
+                            }
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (marketPrice != null && marketPrice > 0 && finding.price != null && finding.price > 0) {
+                                val diffPercent = ((marketPrice - finding.price).toDouble() / marketPrice * 100).toInt()
+                                val formattedMarket = CachedFormatters.formatPrice(marketPrice, finding.currency)
+                                val marketText = if (diffPercent > 0) {
+                                    "Рынок: ~$formattedMarket (-$diffPercent%)"
+                                } else {
+                                    "Рынок: ~$formattedMarket"
+                                }
+                                Text(
+                                    text = marketText,
+                                    color = if (diffPercent > 0) CyberneticSecondary else CyberneticOnSurfaceVariant,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (diffPercent > 0) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                            finding.dealScore?.let { ds ->
+                                if (ds >= 65) {
+                                    DealScoreBadge(score = ds)
+                                }
+                            }
                         }
                     }
 
@@ -510,11 +566,121 @@ fun DealInspectorModal(
                     }
 
                     Text(
-                        text = if (finding.reason == "pushup") "ТОП / Pushup" else "Свежее",
-                        color = if (finding.reason == "pushup") CyberneticTertiary else CyberneticSecondary,
+                        text = when (finding.reason) {
+                            "pushup" -> "ТОП / Pushup"
+                            "price_drop" -> "Снижение цены"
+                            else -> "Свежее"
+                        },
+                        color = when (finding.reason) {
+                            "pushup" -> CyberneticTertiary
+                            "price_drop" -> CyberneticSecondary
+                            else -> CyberneticSecondary
+                        },
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
+                }
+
+                // Seller + Blacklist quick button
+                val seller = finding.sellerName
+                if (!seller.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = CyberneticOnSurfaceVariant,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "Продавец: $seller",
+                                color = CyberneticOnSurfaceVariant,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (onBlockSeller != null) {
+                            OutlinedButton(
+                                onClick = { onBlockSeller(seller) },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = CyberneticError),
+                                border = BorderStroke(1.dp, CyberneticError.copy(alpha = 0.4f)),
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Скрыть продавца", fontSize = 11.sp, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+
+                // Price History Timeline
+                if (priceHistory.size >= 2) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = CyberneticSurfaceContainer,
+                        border = BorderStroke(1.dp, CyberneticCardBorderSoft),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val firstPrice = priceHistory.first().price
+                            val lastPrice = priceHistory.last().price
+                            val totalDeltaPct = if (firstPrice > 0) ((lastPrice - firstPrice).toDouble() / firstPrice * 100).toInt() else 0
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Icon(Icons.Default.Timeline, contentDescription = null, tint = CyberneticSecondary, modifier = Modifier.size(16.dp))
+                                    Text("История цены (${priceHistory.size})", color = CyberneticOnSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                if (totalDeltaPct != 0) {
+                                    Text(
+                                        text = if (totalDeltaPct < 0) "$totalDeltaPct%" else "+$totalDeltaPct%",
+                                        color = if (totalDeltaPct < 0) CyberneticSecondary else CyberneticError,
+                                        fontSize = 12.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            priceHistory.takeLast(6).forEach { pt ->
+                                val dateStr = remember(pt.recordedAt) {
+                                    SimpleDateFormat("dd.MM HH:mm", localeRu).format(Date(pt.recordedAt))
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(dateStr, color = CyberneticOnSurfaceVariant, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                    Text(
+                                        text = CachedFormatters.formatPrice(pt.price, pt.currency ?: finding.currency),
+                                        color = CyberneticOnSurface,
+                                        fontSize = 12.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -668,7 +834,7 @@ fun DealInspectorModal(
                                             isAiRejected -> "Не соответствует условиям поиска"
                                             isAiError -> "Сбой связи или исчерпан лимит Groq"
                                             isAiAnalyzing -> "ИИ сопоставляет фото и описание..."
-                                            isAiQueued -> "Запрос занял > 2 мин и отложен в очередь"
+                                            isAiQueued -> "Запрос занял > 30 сек и отложен в очередь"
                                             hasAiSuccess -> "Анализ фото, комплектации и соответствия"
                                             else -> "Проверка по ключевым словам и цене"
                                         },
@@ -729,14 +895,14 @@ fun DealInspectorModal(
                                             .size(38.dp)
                                             .clip(CircleShape)
                                             .background(
-                                                if (score >= 70) CyberneticSecondary.copy(alpha = 0.2f)
+                                                if (score >= 80) CyberneticSecondary.copy(alpha = 0.2f)
                                                 else CyberneticTertiary.copy(alpha = 0.2f)
                                             ),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
                                             text = "$score%",
-                                            color = if (score >= 70) CyberneticSecondary else CyberneticTertiary,
+                                            color = if (score >= 80) CyberneticSecondary else CyberneticTertiary,
                                             fontSize = 13.sp,
                                             fontFamily = FontFamily.Monospace,
                                             fontWeight = FontWeight.Bold
@@ -1128,7 +1294,7 @@ fun DealInspectorModal(
                                     )
                                 }
                                 Text(
-                                    text = "Анализ этого лота занял более 2 минут и был перенесён в фоновую очередь ИИ-потока, чтобы не блокировать поиск. Он будет обработан автоматически.",
+                                    text = "Анализ этого лота занял более 30 секунд и был перенесён в фоновую очередь ИИ-потока, чтобы не блокировать поиск. Он будет обработан автоматически.",
                                     color = CyberneticOnSurface,
                                     fontSize = 12.sp,
                                     lineHeight = 16.sp
@@ -1284,7 +1450,11 @@ fun DealInspectorModal(
                         InspectorParamRow(
                             icon = Icons.Default.TrendingUp,
                             label = "Событие публикации",
-                            value = if (finding.reason == "pushup") "Поднято в ТОП (Pushup)" else "Свежее объявление"
+                            value = when (finding.reason) {
+                                "pushup" -> "Поднято в ТОП (Pushup)"
+                                "price_drop" -> "Снижение цены"
+                                else -> "Свежее объявление"
+                            }
                         )
 
                         // Param 8: Direct Link
@@ -1390,12 +1560,16 @@ fun DealInspectorModal(
                 ) {
                     // Favorite button
                     IconButton(
-                        onClick = { isFavorite = !isFavorite },
+                        onClick = onToggleFavorite,
                         modifier = Modifier
                             .size(46.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(CyberneticSurfaceContainerHigh)
-                            .border(1.dp, CyberneticOutlineVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                            .background(if (isFavorite) CyberneticError.copy(alpha = 0.14f) else CyberneticSurfaceContainerHigh)
+                            .border(
+                                1.dp,
+                                if (isFavorite) CyberneticError.copy(alpha = 0.45f) else CyberneticCardBorder,
+                                RoundedCornerShape(12.dp)
+                            )
                     ) {
                         Icon(
                             imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -1498,6 +1672,16 @@ fun DealInspectorModal(
             }
         }
     }
+
+    zoomGalleryPage?.let { page ->
+        if (photoGallery.isNotEmpty()) {
+            ZoomablePhotoGalleryDialog(
+                photoUrls = photoGallery,
+                initialPage = page,
+                onDismiss = { zoomGalleryPage = null }
+            )
+        }
+    }
 }
 
 @Composable
@@ -1559,6 +1743,125 @@ private fun InspectorParamRow(
                         tint = CyberneticPrimary,
                         modifier = Modifier.size(13.dp)
                     )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ZoomablePhotoGalleryDialog(
+    photoUrls: List<String>,
+    initialPage: Int,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val pagerState = rememberPagerState(initialPage = initialPage.coerceIn(0, (photoUrls.size - 1).coerceAtLeast(0))) {
+        photoUrls.size
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                var scale by remember(page) { mutableFloatStateOf(1f) }
+                var offsetX by remember(page) { mutableFloatStateOf(0f) }
+                var offsetY by remember(page) { mutableFloatStateOf(0f) }
+
+                val req = remember(photoUrls[page]) {
+                    ImageRequest.Builder(context)
+                        .data(photoUrls[page])
+                        .size(1600, 1600)
+                        .precision(Precision.INEXACT)
+                        .crossfade(true)
+                        .build()
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(page) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    if (scale > 1.05f) {
+                                        scale = 1f
+                                        offsetX = 0f
+                                        offsetY = 0f
+                                    } else {
+                                        scale = 2.5f
+                                    }
+                                }
+                            )
+                        }
+                        .pointerInput(page) {
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                val nextScale = (scale * zoom).coerceIn(1f, 4.5f)
+                                scale = nextScale
+                                if (nextScale > 1f) {
+                                    offsetX += pan.x
+                                    offsetY += pan.y
+                                } else {
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = req,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offsetX,
+                                translationY = offsetY
+                            )
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color.Black.copy(alpha = 0.65f)
+                ) {
+                    Text(
+                        text = "${pagerState.currentPage + 1} / ${photoUrls.size} · щипок / двойной тап для зума",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.65f))
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Закрыть", tint = Color.White)
                 }
             }
         }

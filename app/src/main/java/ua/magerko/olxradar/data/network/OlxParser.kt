@@ -9,6 +9,7 @@ import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.ConcurrentHashMap
 
 object OlxParser {
     private const val TAG = "OlxParser"
@@ -22,7 +23,56 @@ object OlxParser {
     const val CATEGORY_PHONES = 44         // «Телефони та аксесуари»
     private val SUBCATEGORIES_COMPUTERS = listOf(78, 83, 84, 453, 466, 476, 480, 3825, 3826)
 
+    private val regexCache = ConcurrentHashMap<String, Regex>()
+
+    private val antiSpamSignals = listOf(
+        "скупка", "выкуп", "викуп", "аренда", "оренда", "прокат",
+        "под заказ", "під замовлення", "реплика", "репліка",
+        "копия", "копія", "пустая коробка", "порожня коробка",
+        "послуги ремонту", "услуги ремонта", "ремонт телефонов", "ремонт ноутбуков",
+        "ломбард", "в рассрочку", "в розстрочку", "витринный образец", "вітринний зразок"
+    )
+
+    data class ParsedQuery(
+        val positiveQuery: String,
+        val positiveTokens: List<String>,
+        val inlineExclusions: List<String>
+    )
+
+    data class SearchMatchOptions(
+        val smartAntiSpam: Boolean = true,
+        val convertForeignCurrency: Boolean = false,
+        val usdToUahRate: Float = 41.5f,
+        val eurToUahRate: Float = 44.5f,
+        val strictQueryWordMatch: Boolean = false,
+        val onlyDelivery: Boolean = false
+    )
+
+    fun parseQuery(rawQuery: String): ParsedQuery {
+        val tokens = rawQuery.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        val positives = mutableListOf<String>()
+        val exclusions = mutableListOf<String>()
+        for (t in tokens) {
+            if (t.startsWith("-") && t.length > 1) {
+                val cleaned = t.substring(1).trim { !it.isLetterOrDigit() }
+                if (cleaned.isNotBlank()) exclusions.add(cleaned)
+            } else {
+                positives.add(t)
+            }
+        }
+        val posQuery = positives.joinToString(" ")
+        return ParsedQuery(
+            positiveQuery = posQuery,
+            positiveTokens = positives.filter { it.length >= 2 || it.all(Char::isDigit) },
+            inlineExclusions = exclusions
+        )
+    }
+
     private val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
+
+    private val isoFormatMillis = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
 
@@ -31,15 +81,18 @@ object OlxParser {
     }
 
     fun buildSearchUrl(watch: Watch, offset: Int = 0, limit: Int = 40): String {
+        val parsed = parseQuery(watch.query)
         val params = mutableListOf<Pair<String, String>>()
         params.add("offset" to offset.toString())
         params.add("limit" to limit.toString())
-        params.add("query" to watch.query)
+        params.add("query" to parsed.positiveQuery)
         params.add("sort_by" to "created_at:desc")
 
         watch.priceFrom?.let { params.add("filter_float_price:from" to it.toString()) }
         watch.priceTo?.let { params.add("filter_float_price:to" to it.toString()) }
-        watch.cityId?.let { params.add("city_id" to it.toString()) }
+        if (!OlxCities.isMultiCity(watch.cityName)) {
+            watch.cityId?.let { params.add("city_id" to it.toString()) }
+        }
         val effectiveCategoryId = watch.categoryId ?: presetCategoryId(watch.categoryPreset)
         effectiveCategoryId?.let { params.add("category_id" to it.toString()) }
         watch.state?.let { params.add("filter_enum_state[0]" to it) }
@@ -115,7 +168,8 @@ object OlxParser {
                 val city = location.optJSONObject("city")
                 if (city != null) {
                     cityName = city.optString("name", "")
-                    cityId = city.optInt("id", 0)
+                    val parsedCityId = if (city.has("id") && !city.isNull("id")) city.optInt("id", 0) else 0
+                    cityId = parsedCityId.takeIf { it > 0 }
                 }
             }
 
@@ -150,12 +204,14 @@ object OlxParser {
             val refreshTimeStr = if (obj.has("last_refresh_time") && !obj.isNull("last_refresh_time")) obj.optString("last_refresh_time") else null
             val refreshedAt = if (refreshTimeStr.isNullOrEmpty() || refreshTimeStr == "null") null else parseDate(refreshTimeStr)
 
-            // SafeDeal / OLX Доставка
+            // SafeDeal / OLX Доставка и продавец
             val safedeal = obj.optJSONObject("safedeal")
             val deliveryObj = obj.optJSONObject("delivery")
             val isDelivery = (safedeal != null && (safedeal.optBoolean("action", false) || safedeal.optBoolean("available", false))) ||
                     (deliveryObj != null && deliveryObj.optBoolean("status", false)) ||
                     obj.optString("delivery", "").isNotBlank()
+            val userObj = obj.optJSONObject("user")
+            val sellerName = userObj?.optString("name", "")?.trim()?.takeIf { it.isNotBlank() }
 
             Listing(
                 id = id,
@@ -174,7 +230,8 @@ object OlxParser {
                 createdAt = createdAt,
                 pushedAt = pushedAt,
                 refreshedAt = refreshedAt,
-                isDelivery = isDelivery
+                isDelivery = isDelivery,
+                sellerName = sellerName
             )
         } catch (e: Exception) {
             null
@@ -183,60 +240,144 @@ object OlxParser {
 
     internal fun parseDate(str: String?): Long? {
         if (str.isNullOrBlank()) return null
+        val trimmed = str.trim()
         return try {
             synchronized(isoFormat) {
-                isoFormat.parse(str)?.time
+                isoFormat.parse(trimmed)?.time
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             try {
-                synchronized(isoFormatAlt) {
-                    isoFormatAlt.parse(str)?.time
+                synchronized(isoFormatMillis) {
+                    isoFormatMillis.parse(trimmed)?.time
                 }
-            } catch (e2: Exception) {
-                null
+            } catch (_: Exception) {
+                try {
+                    val noFrac = trimmed.replace(Regex("\\.\\d+"), "")
+                    synchronized(isoFormat) {
+                        isoFormat.parse(noFrac)?.time
+                    }
+                } catch (_: Exception) {
+                    try {
+                        synchronized(isoFormatAlt) {
+                            isoFormatAlt.parse(trimmed)?.time
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
             }
         }
     }
 
     /**
-     * B3, B4, B5 matching logic.
+     * B3, B4, B5 matching logic (backward-compatible default behavior).
      */
     fun matchesWatch(listing: Listing, watch: Watch): Boolean {
+        return matchesWatchInternal(
+            listing = listing,
+            watch = watch,
+            options = SearchMatchOptions(smartAntiSpam = false, convertForeignCurrency = false)
+        )
+    }
+
+    /**
+     * Улучшенная фильтрация с поддержкой анти-спама, конвертации валют, строгого совпадения слов запроса
+     * и проверки города по названию (UA/RU).
+     */
+    fun matchesWatchSmart(
+        listing: Listing,
+        watch: Watch,
+        options: SearchMatchOptions
+    ): Boolean {
+        return matchesWatchInternal(listing, watch, options)
+    }
+
+    fun normalizeCurrency(c: String?): String = when (c?.trim()?.uppercase()) {
+        "UAH", "ГРН", "ГРН.", "₴" -> "UAH"
+        "USD", "$", "ДОЛ" -> "USD"
+        "EUR", "€", "ЕВРО" -> "EUR"
+        else -> c?.trim()?.uppercase() ?: ""
+    }
+
+    fun convertPriceToTargetCurrency(
+        price: Int,
+        fromCurrency: String,
+        targetCurrency: String,
+        usdToUah: Float,
+        eurToUah: Float
+    ): Int? {
+        val normFrom = normalizeCurrency(fromCurrency)
+        val normTarget = normalizeCurrency(targetCurrency)
+        if (normFrom == normTarget) return price
+        val inUah: Double = when (normFrom) {
+            "UAH" -> price.toDouble()
+            "USD" -> price * usdToUah.toDouble()
+            "EUR" -> price * eurToUah.toDouble()
+            else -> return null
+        }
+        return when (normTarget) {
+            "UAH" -> inUah.toInt()
+            "USD" -> (inUah / usdToUah.toDouble()).toInt()
+            "EUR" -> (inUah / eurToUah.toDouble()).toInt()
+            else -> null
+        }
+    }
+
+    private fun matchesWatchInternal(
+        listing: Listing,
+        watch: Watch,
+        options: SearchMatchOptions
+    ): Boolean {
+        // Delivery filter
+        if (options.onlyDelivery && !listing.isDelivery) {
+            return false
+        }
+
         // Price constraints (B3, B4)
         if (listing.price == null) {
-            // B4: Lots without price pass only if includeNoPrice is true
             if (!watch.includeNoPrice) {
                 return false
             }
         } else {
-            // Price is present. Check currency compatibility (B3).
-            fun normalizeCurrency(c: String?): String = when (c?.trim()?.uppercase()) {
-                "UAH", "ГРН", "ГРН.", "₴" -> "UAH"
-                "USD", "$", "ДОЛ" -> "USD"
-                "EUR", "€", "ЕВРО" -> "EUR"
-                else -> c?.trim()?.uppercase() ?: ""
-            }
-            val currenciesMatch = normalizeCurrency(listing.currency) == normalizeCurrency(watch.priceCurrency)
+            val listingCurr = normalizeCurrency(listing.currency)
+            val watchCurr = normalizeCurrency(watch.priceCurrency)
+            val currenciesMatch = listingCurr == watchCurr
 
-            if (!currenciesMatch) {
-                // Rule: If currencies differ, skip price bounds check ("do not reject") and log warning.
+            val effectivePrice: Int? = if (currenciesMatch) {
+                listing.price
+            } else if (options.convertForeignCurrency && listingCurr.isNotBlank() && watchCurr.isNotBlank()) {
+                convertPriceToTargetCurrency(
+                    price = listing.price,
+                    fromCurrency = listingCurr,
+                    targetCurrency = watchCurr,
+                    usdToUah = options.usdToUahRate,
+                    eurToUah = options.eurToUahRate
+                )
+            } else {
                 Log.d(
                     TAG,
                     "Currency mismatch: listing currency '${listing.currency}' != watch currency '${watch.priceCurrency}'. Price bounds not enforced."
                 )
-            } else {
-                if (watch.priceFrom != null && listing.price < watch.priceFrom) {
+                null
+            }
+
+            if (effectivePrice != null) {
+                if (watch.priceFrom != null && effectivePrice < watch.priceFrom) {
                     return false
                 }
-                if (watch.priceTo != null && listing.price > watch.priceTo) {
+                if (watch.priceTo != null && effectivePrice > watch.priceTo) {
                     return false
                 }
             }
         }
 
-        // City
-        if (watch.cityId != null && listing.cityId != null && listing.cityId != watch.cityId) {
-            return false
+        // City (by ID or by UA/RU city / multi-city list)
+        if (watch.cityId != null && listing.cityId != null && !OlxCities.isMultiCity(watch.cityName)) {
+            if (listing.cityId != watch.cityId) return false
+        } else if (!watch.cityName.isNullOrBlank()) {
+            if (!OlxCities.citiesMatch(listing.cityName, watch.cityName)) {
+                return false
+            }
         }
 
         // Category check (exact or subcategory match)
@@ -260,6 +401,32 @@ object OlxParser {
         }
 
         val textToSearch = "${listing.title} ${listing.description}"
+        val parsedQuery = parseQuery(watch.query)
+
+        // Inline -exclude tokens from query (e.g. "iphone 13 -max -чехол")
+        for (excl in parsedQuery.inlineExclusions) {
+            if (matchesWordBoundary(textToSearch, excl)) {
+                return false
+            }
+        }
+
+        // Strict query word matching (filters OLX "similar/recommended" noise)
+        if (options.strictQueryWordMatch && parsedQuery.positiveTokens.isNotEmpty()) {
+            val allTokensPresent = parsedQuery.positiveTokens.all { token ->
+                matchesWordBoundary(textToSearch, token)
+            }
+            if (!allTokensPresent) return false
+        }
+
+        // Smart Anti-Spam filter (skips buyback/rental/repair/replica unless negated or requested in query)
+        if (options.smartAntiSpam) {
+            val queryLower = parsedQuery.positiveQuery.lowercase()
+            for (spam in antiSpamSignals) {
+                if (!queryLower.contains(spam) && matchesAntiSpamSignal(textToSearch, spam)) {
+                    return false
+                }
+            }
+        }
 
         // B5: Stop words check (matched on word boundaries, not simple substring)
         if (watch.stopWords.isNotBlank()) {
@@ -296,13 +463,7 @@ object OlxParser {
             }
         }
 
-        // Фильтр по дате публикации (свежести) объявления:
-        // "any" - любое время
-        // "fresh" - только свежие (до 24 часов)
-        // "recent" - недавние (до 3 дней / 72 ч)
-        // "week" - за неделю (до 7 дней)
-        // "old" - старые / «висяки» (старше 7 дней)
-        // "very_old" - залежавшиеся (старше 14 дней)
+        // Фильтр по дате публикации (свежести) объявления
         if (watch.publicationAge.isNotBlank() && watch.publicationAge != "any") {
             val now = System.currentTimeMillis()
             val ageMillis = now - listing.createdAt
@@ -320,11 +481,78 @@ object OlxParser {
     }
 
     /**
-     * Matches word on boundary across Unicode characters (Cyrillic, Latin, etc.)
+     * Вычисляет локальный «Рейтинг выгодности сделки» (0..100) на основе цены относительно рынка,
+     * состояния, наличия OLX Доставки, частного продавца и совпадения ключевых слов в заголовке.
+     */
+    fun computeDealScore(
+        listing: Listing,
+        watch: Watch,
+        marketMedianPrice: Int? = null,
+        conditionScore: Int = 50,
+        usdToUahRate: Float = 41.5f,
+        eurToUahRate: Float = 44.5f
+    ): Int {
+        var score = 50
+
+        if (marketMedianPrice != null && marketMedianPrice > 0 && listing.price != null && listing.price > 0) {
+            val listingCurr = normalizeCurrency(listing.currency)
+            val watchCurr = normalizeCurrency(watch.priceCurrency)
+            val normalizedPrice = when {
+                listingCurr == watchCurr || listingCurr.isBlank() -> listing.price
+                else -> convertPriceToTargetCurrency(listing.price, listingCurr, watchCurr, usdToUahRate, eurToUahRate)
+            }
+            if (normalizedPrice != null && normalizedPrice > 0) {
+                val diffPct = ((marketMedianPrice - normalizedPrice).toDouble() / marketMedianPrice) * 100.0
+                score += when {
+                    diffPct >= 35 -> 30
+                    diffPct >= 20 -> 22
+                    diffPct >= 10 -> 14
+                    diffPct >= 5 -> 7
+                    diffPct <= -25 -> -15
+                    diffPct <= -10 -> -7
+                    else -> 0
+                }
+            }
+        }
+
+        if (watch.conditionTarget != "broken") {
+            score += ((conditionScore - 50) * 0.25).toInt()
+        }
+        if (listing.isDelivery) score += 6
+        if (!listing.isBusiness) score += 5
+        if (!listing.photoUrl.isNullOrBlank()) score += 4
+
+        val positiveTokens = parseQuery(watch.query).positiveTokens
+        if (positiveTokens.isNotEmpty() && positiveTokens.all { matchesWordBoundary(listing.title, it) }) {
+            score += 8
+        }
+
+        return score.coerceIn(0, 100)
+    }
+
+    private fun matchesAntiSpamSignal(text: String, spam: String): Boolean {
+        if (!matchesWordBoundary(text, spam)) return false
+        val pattern = regexCache.getOrPut("antispam_$spam") {
+            Regex("(^|[^\\p{L}\\p{N}])" + Regex.escape(spam) + "([^\\p{L}\\p{N}]|$)", RegexOption.IGNORE_CASE)
+        }
+        val match = pattern.find(text) ?: return false
+        val prefixStart = (match.range.first - 14).coerceAtLeast(0)
+        val prefix = text.substring(prefixStart, match.range.first).lowercase()
+        // Не блокируем фразы вроде «не копия», «не репліка», «без ремонта»
+        if (Regex("(^|\\s)(не|без|ні)\\s*$").containsMatchIn(prefix)) {
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Matches word on boundary across Unicode characters (Cyrillic, Latin, etc.) with cached Regex.
      */
     fun matchesWordBoundary(text: String, word: String): Boolean {
         if (word.isBlank() || text.isBlank()) return false
-        val pattern = Regex("(^|[^\\p{L}\\p{N}])" + Regex.escape(word) + "([^\\p{L}\\p{N}]|$)", RegexOption.IGNORE_CASE)
+        val pattern = regexCache.getOrPut(word) {
+            Regex("(^|[^\\p{L}\\p{N}])" + Regex.escape(word) + "([^\\p{L}\\p{N}]|$)", RegexOption.IGNORE_CASE)
+        }
         return pattern.containsMatchIn(text)
     }
 

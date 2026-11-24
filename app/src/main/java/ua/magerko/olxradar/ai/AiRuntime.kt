@@ -276,7 +276,7 @@ object AiRuntime {
         currency: String? = "грн",
         radarTitle: String? = null,
         photosTotal: Int = 0,
-        reasons: String = "Анализ превысил 2 мин. Отложено в очередь ИИ"
+        reasons: String = "Анализ превысил 30 сек. Отложено в очередь ИИ"
     ) {
         val now = System.currentTimeMillis()
         val item = LiveAiItem(
@@ -302,6 +302,6 @@ object AiRuntime {
                 queue = nextQueue
             )
         }
-        AppLog.i("AiRuntime", "Лот '$title' отправлен в очередь ИИ-потока (лимит 2 мин)")
+        AppLog.i("AiRuntime", "Лот '$title' отправлен в очередь ИИ-потока (лимит 30 сек)")
     }
 }

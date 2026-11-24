@@ -183,3 +183,45 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
         db.execSQL("ALTER TABLE `findings` ADD COLUMN `is_delivery` INTEGER NOT NULL DEFAULT 0")
     }
 }
+
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Избранное, старая цена (снижение цены), рейтинг выгодности и список фото
+        db.execSQL("ALTER TABLE `findings` ADD COLUMN `is_favorite` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `findings` ADD COLUMN `old_price` INTEGER")
+        db.execSQL("ALTER TABLE `findings` ADD COLUMN `deal_score` INTEGER")
+        db.execSQL("ALTER TABLE `findings` ADD COLUMN `photo_urls_json` TEXT")
+    }
+}
+
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Валюта последней цены в seen_items для точного расчёта снижения цены без смешивания UAH/USD
+        db.execSQL("ALTER TABLE `seen_items` ADD COLUMN `last_currency` TEXT")
+    }
+}
+
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `findings` ADD COLUMN `seller_name` TEXT")
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `seller_blacklist` (
+                `seller_key` TEXT NOT NULL,
+                `display_name` TEXT NOT NULL,
+                `added_at` INTEGER NOT NULL,
+                PRIMARY KEY(`seller_key`)
+            )
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `price_history` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                `watch_id` INTEGER NOT NULL,
+                `listing_id` INTEGER NOT NULL,
+                `price` INTEGER NOT NULL,
+                `currency` TEXT,
+                `recorded_at` INTEGER NOT NULL
+            )
+        """.trimIndent())
+        db.execSQL("CREATE INDEX IF NOT EXISTS `idx_price_history_listing_time` ON `price_history` (`listing_id`, `recorded_at`)")
+    }
+}

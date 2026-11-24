@@ -1,18 +1,24 @@
 package ua.magerko.olxradar.ui.compose
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.SharedPreferences
 import android.os.Build
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import ua.magerko.olxradar.service.MonitorService
 
 /**
@@ -23,14 +29,16 @@ enum class ThemeMode(
     val subtitle: String,
     val isDark: Boolean,
     val primaryPreview: Color,
-    val surfacePreview: Color
+    val surfacePreview: Color,
+    val secondaryPreview: Color
 ) {
-    CYBER("Кибернетика", "Неоновый тёмный контраст", true, Color(0xFF00E5FF), Color(0xFF0A0F1D)),
-    GLASS("Liquid Glass", "Полупрозрачное стекло и градиент", true, Color(0xFF38BDF8), Color(0xFF0F172A)),
-    EMERALD("Изумруд", "Глубокая ночная зелень", true, Color(0xFF10B981), Color(0xFF091410)),
-    AMETHYST("Аметист", "Космический фиолетовый", true, Color(0xFFA855F7), Color(0xFF100C1E)),
-    WHITE("Светлая", "Чистая контрастная классика", false, Color(0xFF2563EB), Color(0xFFFFFFFF)),
-    GRAY("Графит", "Скандинавский минимализм", false, Color(0xFF4B5563), Color(0xFFF3F4F6));
+    CYBER("Кибернетика", "Неоновый тёмный контраст", true, Color(0xFF00E5FF), Color(0xFF0A0F1D), Color(0xFF00E676)),
+    GLASS("Liquid Glass", "Полупрозрачное стекло и сияние", true, Color(0xFF38BDF8), Color(0xFF0B1120), Color(0xFF34D399)),
+    AMOLED("AMOLED Ночь", "Чистый чёрный для OLED", true, Color(0xFF22D3EE), Color(0xFF000000), Color(0xFF10B981)),
+    EMERALD("Изумруд", "Глубокая ночная зелень", true, Color(0xFF10B981), Color(0xFF091410), Color(0xFF38BDF8)),
+    AMETHYST("Аметист", "Космический фиолетовый", true, Color(0xFFA855F7), Color(0xFF100C1E), Color(0xFF06B6D4)),
+    WHITE("Светлая", "Чистая воздушная классика", false, Color(0xFF2563EB), Color(0xFFF8FAFC), Color(0xFF059669)),
+    GRAY("Графит", "Скандинавский минимализм", false, Color(0xFF374151), Color(0xFFF1F3F5), Color(0xFF10B981));
 
     companion object {
         fun fromId(id: String?): ThemeMode = entries.firstOrNull { it.name == id } ?: CYBER
@@ -76,12 +84,22 @@ var CyberneticOnSurfaceVariant by mutableStateOf(Color(0xFF94A3B8))
 var CyberneticOutline by mutableStateOf(Color(0xFF64748B))
 var CyberneticOutlineVariant by mutableStateOf(Color(0xFF334155))
 
+/** Семантические цвета обводки карточек и фоновых свечений (корректны и для светлых, и для тёмных тем) */
+var CyberneticCardBorder by mutableStateOf(Color(0x24FFFFFF))
+var CyberneticCardBorderSoft by mutableStateOf(Color(0x10FFFFFF))
+var CyberneticOrbPrimary by mutableStateOf(Color(0x2400E5FF))
+var CyberneticOrbSecondary by mutableStateOf(Color(0x1800E676))
+
 /** Градиент фона */
-var CyberneticBackgroundGradientTop by mutableStateOf(Color(0xFF0A0F1D))
-var CyberneticBackgroundGradientBottom by mutableStateOf(Color(0xFF111827))
+var CyberneticBackgroundGradientTop by mutableStateOf(Color(0xFF070B16))
+var CyberneticBackgroundGradientBottom by mutableStateOf(Color(0xFF10172A))
 
 /** Флаг темы Liquid Glass */
 var isGlassTheme by mutableStateOf(false)
+
+/** Непрозрачный цвет для модальных окон, диалогов и меню (даже в Liquid Glass режиме) */
+val CyberneticModalSurface: Color
+    get() = if (isGlassTheme) Color(0xF5151F33) else CyberneticSurfaceContainer
 
 val isLiquidGlassSupported: Boolean
     get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
@@ -93,12 +111,12 @@ private fun applyCyber() {
     isGlassTheme = false
     currentThemeMode = ThemeMode.CYBER
 
-    CyberneticSurface = Color(0xFF0A0F1D)
-    CyberneticSurfaceContainer = Color(0xFF141C30)
-    CyberneticSurfaceContainerLow = Color(0xFF0E1526)
-    CyberneticSurfaceContainerLowest = Color(0xFF070B16)
-    CyberneticSurfaceContainerHigh = Color(0xFF1C2742)
-    CyberneticSurfaceContainerHighest = Color(0xFF263456)
+    CyberneticSurface = Color(0xFF090E1A)
+    CyberneticSurfaceContainer = Color(0xFF131B2E)
+    CyberneticSurfaceContainerLow = Color(0xFF0D1424)
+    CyberneticSurfaceContainerLowest = Color(0xFF060A14)
+    CyberneticSurfaceContainerHigh = Color(0xFF1B2640)
+    CyberneticSurfaceContainerHighest = Color(0xFF243254)
     CyberneticSurfaceBright = Color(0xFF2E3E66)
 
     CyberneticPrimary = Color(0xFF00E5FF)
@@ -126,24 +144,29 @@ private fun applyCyber() {
     CyberneticOutline = Color(0xFF64748B)
     CyberneticOutlineVariant = Color(0xFF334155)
 
-    CyberneticBackgroundGradientTop = Color(0xFF070B16)
-    CyberneticBackgroundGradientBottom = Color(0xFF10172A)
+    CyberneticCardBorder = Color(0x24FFFFFF)
+    CyberneticCardBorderSoft = Color(0x0FFFFFFF)
+    CyberneticOrbPrimary = Color(0x2200E5FF)
+    CyberneticOrbSecondary = Color(0x1A00E676)
+
+    CyberneticBackgroundGradientTop = Color(0xFF060A14)
+    CyberneticBackgroundGradientBottom = Color(0xFF0F172A)
 }
 
 private fun applyGlass() {
     isGlassTheme = true
     currentThemeMode = ThemeMode.GLASS
 
-    CyberneticSurface = Color(0xFF0B1120)
-    CyberneticSurfaceContainer = Color(0xB81E293B)
-    CyberneticSurfaceContainerLow = Color(0x940F172A)
-    CyberneticSurfaceContainerLowest = Color(0x70020617)
-    CyberneticSurfaceContainerHigh = Color(0xCC334155)
-    CyberneticSurfaceContainerHighest = Color(0xE0475569)
+    CyberneticSurface = Color(0xFF080E1E)
+    CyberneticSurfaceContainer = Color(0xA61A253B)
+    CyberneticSurfaceContainerLow = Color(0x800F172A)
+    CyberneticSurfaceContainerLowest = Color(0x66040814)
+    CyberneticSurfaceContainerHigh = Color(0xC2283754)
+    CyberneticSurfaceContainerHighest = Color(0xD63B4D6E)
     CyberneticSurfaceBright = Color(0xFF64748B)
 
     CyberneticPrimary = Color(0xFF38BDF8)
-    CyberneticOnPrimary = Color(0xFF003247)
+    CyberneticOnPrimary = Color(0xFF002B40)
     CyberneticPrimaryContainer = Color(0xFF0284C7)
     CyberneticOnPrimaryContainer = Color(0xFFE0F2FE)
 
@@ -167,21 +190,72 @@ private fun applyGlass() {
     CyberneticOutline = Color(0xFF94A3B8)
     CyberneticOutlineVariant = Color(0xFF475569)
 
-    CyberneticBackgroundGradientTop = Color(0xFF090D1A)
-    CyberneticBackgroundGradientBottom = Color(0xFF1E293B)
+    CyberneticCardBorder = Color(0x47FFFFFF)
+    CyberneticCardBorderSoft = Color(0x1AFFFFFF)
+    CyberneticOrbPrimary = Color(0x3838BDF8)
+    CyberneticOrbSecondary = Color(0x2834D399)
+
+    CyberneticBackgroundGradientTop = Color(0xFF070C1B)
+    CyberneticBackgroundGradientBottom = Color(0xFF17233B)
+}
+
+private fun applyAmoled() {
+    isGlassTheme = false
+    currentThemeMode = ThemeMode.AMOLED
+
+    CyberneticSurface = Color(0xFF000000)
+    CyberneticSurfaceContainer = Color(0xFF0B0E14)
+    CyberneticSurfaceContainerLow = Color(0xFF06080C)
+    CyberneticSurfaceContainerLowest = Color(0xFF000000)
+    CyberneticSurfaceContainerHigh = Color(0xFF131822)
+    CyberneticSurfaceContainerHighest = Color(0xFF1E2636)
+    CyberneticSurfaceBright = Color(0xFF2B354A)
+
+    CyberneticPrimary = Color(0xFF22D3EE)
+    CyberneticOnPrimary = Color(0xFF00333B)
+    CyberneticPrimaryContainer = Color(0xFF0E7490)
+    CyberneticOnPrimaryContainer = Color(0xFFCFFAFE)
+
+    CyberneticSecondary = Color(0xFF10B981)
+    CyberneticOnSecondary = Color(0xFF003824)
+    CyberneticSecondaryContainer = Color(0xFF047857)
+    CyberneticOnSecondaryContainer = Color(0xFFA7F3D0)
+
+    CyberneticTertiary = Color(0xFFF59E0B)
+    CyberneticOnTertiary = Color(0xFF452B00)
+    CyberneticTertiaryContainer = Color(0xFFB45309)
+    CyberneticOnTertiaryContainer = Color(0xFFFEF3C7)
+
+    CyberneticError = Color(0xFFFB7185)
+    CyberneticOnError = Color(0xFF4C0519)
+    CyberneticErrorContainer = Color(0xFF9F1239)
+    CyberneticOnErrorContainer = Color(0xFFFFE4E6)
+
+    CyberneticOnSurface = Color(0xFFF8FAFC)
+    CyberneticOnSurfaceVariant = Color(0xFF94A3B8)
+    CyberneticOutline = Color(0xFF64748B)
+    CyberneticOutlineVariant = Color(0xFF1E293B)
+
+    CyberneticCardBorder = Color(0x22FFFFFF)
+    CyberneticCardBorderSoft = Color(0x0DFFFFFF)
+    CyberneticOrbPrimary = Color(0x1622D3EE)
+    CyberneticOrbSecondary = Color(0x1210B981)
+
+    CyberneticBackgroundGradientTop = Color(0xFF000000)
+    CyberneticBackgroundGradientBottom = Color(0xFF04060A)
 }
 
 private fun applyEmerald() {
     isGlassTheme = false
     currentThemeMode = ThemeMode.EMERALD
 
-    CyberneticSurface = Color(0xFF091410)
-    CyberneticSurfaceContainer = Color(0xFF10241D)
-    CyberneticSurfaceContainerLow = Color(0xFF0C1B15)
-    CyberneticSurfaceContainerLowest = Color(0xFF050C0A)
-    CyberneticSurfaceContainerHigh = Color(0xFF18362B)
-    CyberneticSurfaceContainerHighest = Color(0xFF224A3B)
-    CyberneticSurfaceBright = Color(0xFF2F6350)
+    CyberneticSurface = Color(0xFF07120E)
+    CyberneticSurfaceContainer = Color(0xFF0F211A)
+    CyberneticSurfaceContainerLow = Color(0xFF0B1914)
+    CyberneticSurfaceContainerLowest = Color(0xFF040B08)
+    CyberneticSurfaceContainerHigh = Color(0xFF163228)
+    CyberneticSurfaceContainerHighest = Color(0xFF1F4436)
+    CyberneticSurfaceBright = Color(0xFF2B5B49)
 
     CyberneticPrimary = Color(0xFF10B981)
     CyberneticOnPrimary = Color(0xFF003824)
@@ -208,21 +282,26 @@ private fun applyEmerald() {
     CyberneticOutline = Color(0xFF6EE7B7)
     CyberneticOutlineVariant = Color(0xFF065F46)
 
-    CyberneticBackgroundGradientTop = Color(0xFF060D0A)
-    CyberneticBackgroundGradientBottom = Color(0xFF122820)
+    CyberneticCardBorder = Color(0x286EE7B7)
+    CyberneticCardBorderSoft = Color(0x126EE7B7)
+    CyberneticOrbPrimary = Color(0x2210B981)
+    CyberneticOrbSecondary = Color(0x1A38BDF8)
+
+    CyberneticBackgroundGradientTop = Color(0xFF050C09)
+    CyberneticBackgroundGradientBottom = Color(0xFF10241C)
 }
 
 private fun applyAmethyst() {
     isGlassTheme = false
     currentThemeMode = ThemeMode.AMETHYST
 
-    CyberneticSurface = Color(0xFF100C1E)
-    CyberneticSurfaceContainer = Color(0xFF1B1533)
-    CyberneticSurfaceContainerLow = Color(0xFF140F26)
-    CyberneticSurfaceContainerLowest = Color(0xFF0B0815)
-    CyberneticSurfaceContainerHigh = Color(0xFF261D47)
-    CyberneticSurfaceContainerHighest = Color(0xFF34285F)
-    CyberneticSurfaceBright = Color(0xFF45367D)
+    CyberneticSurface = Color(0xFF0E0A1B)
+    CyberneticSurfaceContainer = Color(0xFF191330)
+    CyberneticSurfaceContainerLow = Color(0xFF130E24)
+    CyberneticSurfaceContainerLowest = Color(0xFF090612)
+    CyberneticSurfaceContainerHigh = Color(0xFF241B44)
+    CyberneticSurfaceContainerHighest = Color(0xFF31255A)
+    CyberneticSurfaceBright = Color(0xFF423378)
 
     CyberneticPrimary = Color(0xFFA855F7)
     CyberneticOnPrimary = Color(0xFF380068)
@@ -249,19 +328,24 @@ private fun applyAmethyst() {
     CyberneticOutline = Color(0xFFA78BFA)
     CyberneticOutlineVariant = Color(0xFF581C87)
 
-    CyberneticBackgroundGradientTop = Color(0xFF0B0815)
-    CyberneticBackgroundGradientBottom = Color(0xFF1E1738)
+    CyberneticCardBorder = Color(0x2AA78BFA)
+    CyberneticCardBorderSoft = Color(0x14A78BFA)
+    CyberneticOrbPrimary = Color(0x28A855F7)
+    CyberneticOrbSecondary = Color(0x1E06B6D4)
+
+    CyberneticBackgroundGradientTop = Color(0xFF090612)
+    CyberneticBackgroundGradientBottom = Color(0xFF1C1435)
 }
 
 private fun applyWhite() {
     isGlassTheme = false
     currentThemeMode = ThemeMode.WHITE
 
-    CyberneticSurface = Color(0xFFFFFFFF)
-    CyberneticSurfaceContainer = Color(0xFFF8FAFC)
-    CyberneticSurfaceContainerLow = Color(0xFFFFFFFF)
-    CyberneticSurfaceContainerLowest = Color(0xFFF1F5F9)
-    CyberneticSurfaceContainerHigh = Color(0xFFE2E8F0)
+    CyberneticSurface = Color(0xFFF8FAFC)
+    CyberneticSurfaceContainer = Color(0xFFFFFFFF)
+    CyberneticSurfaceContainerLow = Color(0xFFF1F5F9)
+    CyberneticSurfaceContainerLowest = Color(0xFFE2E8F0)
+    CyberneticSurfaceContainerHigh = Color(0xFFEEF2F6)
     CyberneticSurfaceContainerHighest = Color(0xFFCBD5E1)
     CyberneticSurfaceBright = Color(0xFFFFFFFF)
 
@@ -287,31 +371,36 @@ private fun applyWhite() {
 
     CyberneticOnSurface = Color(0xFF0F172A)
     CyberneticOnSurfaceVariant = Color(0xFF475569)
-    CyberneticOutline = Color(0xFF94A3B8)
-    CyberneticOutlineVariant = Color(0xFFE2E8F0)
+    CyberneticOutline = Color(0xFF64748B)
+    CyberneticOutlineVariant = Color(0xFFCBD5E1)
 
-    CyberneticBackgroundGradientTop = Color(0xFFFFFFFF)
-    CyberneticBackgroundGradientBottom = Color(0xFFF8FAFC)
+    CyberneticCardBorder = Color(0xFFDCE3ED)
+    CyberneticCardBorderSoft = Color(0xFFE9EEF5)
+    CyberneticOrbPrimary = Color(0x142563EB)
+    CyberneticOrbSecondary = Color(0x10059669)
+
+    CyberneticBackgroundGradientTop = Color(0xFFF8FAFC)
+    CyberneticBackgroundGradientBottom = Color(0xFFEFF4FB)
 }
 
 private fun applyGray() {
     isGlassTheme = false
     currentThemeMode = ThemeMode.GRAY
 
-    CyberneticSurface = Color(0xFFF3F4F6)
-    CyberneticSurfaceContainer = Color(0xFFE5E7EB)
-    CyberneticSurfaceContainerLow = Color(0xFFF9FAFB)
-    CyberneticSurfaceContainerLowest = Color(0xFFFFFFFF)
-    CyberneticSurfaceContainerHigh = Color(0xFFD1D5DB)
-    CyberneticSurfaceContainerHighest = Color(0xFF9CA3AF)
+    CyberneticSurface = Color(0xFFF1F3F5)
+    CyberneticSurfaceContainer = Color(0xFFFFFFFF)
+    CyberneticSurfaceContainerLow = Color(0xFFE9ECEF)
+    CyberneticSurfaceContainerLowest = Color(0xFFDEE2E6)
+    CyberneticSurfaceContainerHigh = Color(0xFFE5E7EB)
+    CyberneticSurfaceContainerHighest = Color(0xFFCED4DA)
     CyberneticSurfaceBright = Color(0xFFFFFFFF)
 
-    CyberneticPrimary = Color(0xFF374151)
+    CyberneticPrimary = Color(0xFF1F2937)
     CyberneticOnPrimary = Color(0xFFFFFFFF)
     CyberneticPrimaryContainer = Color(0xFFE5E7EB)
     CyberneticOnPrimaryContainer = Color(0xFF111827)
 
-    CyberneticSecondary = Color(0xFF10B981)
+    CyberneticSecondary = Color(0xFF059669)
     CyberneticOnSecondary = Color(0xFFFFFFFF)
     CyberneticSecondaryContainer = Color(0xFFD1FAE5)
     CyberneticOnSecondaryContainer = Color(0xFF065F46)
@@ -331,7 +420,12 @@ private fun applyGray() {
     CyberneticOutline = Color(0xFF6B7280)
     CyberneticOutlineVariant = Color(0xFFD1D5DB)
 
-    CyberneticBackgroundGradientTop = Color(0xFFF9FAFB)
+    CyberneticCardBorder = Color(0xFFD1D5DB)
+    CyberneticCardBorderSoft = Color(0xFFE5E7EB)
+    CyberneticOrbPrimary = Color(0x12374151)
+    CyberneticOrbSecondary = Color(0x10059669)
+
+    CyberneticBackgroundGradientTop = Color(0xFFF3F4F6)
     CyberneticBackgroundGradientBottom = Color(0xFFE5E7EB)
 }
 
@@ -339,6 +433,7 @@ fun applyThemeMode(mode: ThemeMode) {
     when (mode) {
         ThemeMode.CYBER -> applyCyber()
         ThemeMode.GLASS -> applyGlass()
+        ThemeMode.AMOLED -> applyAmoled()
         ThemeMode.EMERALD -> applyEmerald()
         ThemeMode.AMETHYST -> applyAmethyst()
         ThemeMode.WHITE -> applyWhite()
@@ -360,7 +455,16 @@ object ThemePreferences {
             context.applicationContext.getSharedPreferences(MonitorService.PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString(KEY, mode.name).apply()
         applyThemeMode(mode)
+        AppCompatDelegate.setDefaultNightMode(
+            if (mode.isDark) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
+        )
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 @Composable
@@ -368,7 +472,23 @@ fun CyberneticRadarTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val isDark = currentThemeMode.isDark || isGlassTheme || darkTheme
+    // Используем именно isDark выбранной пользователем темы, а не системный флаг для светлых тем!
+    val isDark = currentThemeMode.isDark || isGlassTheme
+
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = view.context.findActivity()?.window
+            if (window != null) {
+                window.statusBarColor = Color.Transparent.toArgb()
+                window.navigationBarColor = Color.Transparent.toArgb()
+                val controller = WindowCompat.getInsetsController(window, view)
+                controller.isAppearanceLightStatusBars = !isDark
+                controller.isAppearanceLightNavigationBars = !isDark
+            }
+        }
+    }
+
     val colorScheme = if (isDark) {
         darkColorScheme(
             primary = CyberneticPrimary,
@@ -408,6 +528,8 @@ fun CyberneticRadarTheme(
             onSecondaryContainer = CyberneticOnSecondaryContainer,
             tertiary = CyberneticTertiary,
             onTertiary = CyberneticOnTertiary,
+            tertiaryContainer = CyberneticTertiaryContainer,
+            onTertiaryContainer = CyberneticOnTertiaryContainer,
             error = CyberneticError,
             onError = CyberneticOnError,
             errorContainer = CyberneticErrorContainer,

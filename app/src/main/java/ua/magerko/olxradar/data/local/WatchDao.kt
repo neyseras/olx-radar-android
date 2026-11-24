@@ -31,6 +31,9 @@ abstract class WatchDao {
     @Query("UPDATE watches SET initialized = :initialized WHERE id = :id")
     abstract suspend fun setInitialized(id: Long, initialized: Boolean)
 
+    @Query("UPDATE watches SET city_id = :cityId WHERE id = :id")
+    abstract suspend fun updateCityId(id: Long, cityId: Int)
+
     @Query("UPDATE watches SET last_success_at = :timestamp, last_error = NULL, last_http_code = 200 WHERE id = :id")
     abstract suspend fun updateSuccess(id: Long, timestamp: Long)
 

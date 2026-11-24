@@ -67,6 +67,18 @@ class MonitorService : Service() {
                 curMinutes >= startMinutes || curMinutes <= endMinutes
             }
         }
+
+        fun isQuietHoursStatic(prefs: SharedPreferences): Boolean {
+            val enabled = prefs.getBoolean(KEY_QUIET_HOURS_ENABLED, false)
+            if (!enabled) return false
+            val fromHour = prefs.getInt(KEY_QUIET_HOURS_FROM_HOUR, 23)
+            val fromMin = prefs.getInt(KEY_QUIET_HOURS_FROM_MIN, 0)
+            val toHour = prefs.getInt(KEY_QUIET_HOURS_TO_HOUR, 7)
+            val toMin = prefs.getInt(KEY_QUIET_HOURS_TO_MIN, 0)
+            val calendar = Calendar.getInstance()
+            val curMinutes = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
+            return isInQuietHoursRange(enabled, fromHour, fromMin, toHour, toMin, curMinutes)
+        }
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -246,106 +258,238 @@ class MonitorService : Service() {
         if (RadarState.status.value.isPaused) return
         val now = System.currentTimeMillis()
         try {
-            val searchUrl = OlxParser.buildSearchUrl(watch)
-            val rawJson = chromiumBridge.fetchJson(searchUrl)
-            if (RadarState.status.value.isPaused) return
-            val listings = OlxParser.parseListings(rawJson)
+            val appSnap = ua.magerko.olxradar.data.prefs.AppPreferences.state.value
+            val scanPages = appSnap.scanDepthPages.coerceIn(1, 3)
+            val listings = mutableListOf<ua.magerko.olxradar.data.model.Listing>()
+            val seenBatchIds = HashSet<Long>()
+            for (pageIdx in 0 until scanPages) {
+                if (RadarState.status.value.isPaused) return
+                val offset = pageIdx * 40
+                val searchUrl = OlxParser.buildSearchUrl(watch, offset = offset, limit = 40)
+                val rawJson = try {
+                    chromiumBridge.fetchJson(searchUrl)
+                } catch (e: Exception) {
+                    if (e is CancellationException && e !is TimeoutCancellationException) throw e
+                    if (pageIdx == 0) throw e else break
+                }
+                if (RadarState.status.value.isPaused) return
+                val pageListings = OlxParser.parseListings(rawJson)
+                for (item in pageListings) {
+                    if (seenBatchIds.add(item.id)) {
+                        listings.add(item)
+                    }
+                }
+                if (pageListings.size < 40) break
+                if (pageIdx < scanPages - 1) {
+                    delay(1200L)
+                }
+            }
 
-            val seenIds = db.seenItemDao().getSeenIds(watch.id).toMutableSet()
+            // Авто-определение city_id по строгому совпадению названия города (UA/RU)
+            var effectiveWatch = watch
+            if (watch.cityId == null && !watch.cityName.isNullOrBlank()) {
+                val matchedCity = listings.firstOrNull {
+                    it.cityId != null && it.cityId > 0 &&
+                        ua.magerko.olxradar.data.network.OlxCities.citiesMatchExact(it.cityName, watch.cityName)
+                }
+                if (matchedCity?.cityId != null) {
+                    db.watchDao().updateCityId(watch.id, matchedCity.cityId)
+                    effectiveWatch = watch.copy(cityId = matchedCity.cityId)
+                }
+            }
+
+            val matchOptions = OlxParser.SearchMatchOptions(
+                smartAntiSpam = appSnap.smartAntiSpam,
+                convertForeignCurrency = appSnap.convertForeignCurrency,
+                usdToUahRate = appSnap.usdToUahRate,
+                eurToUahRate = appSnap.eurToUahRate,
+                strictQueryWordMatch = appSnap.strictQueryWordMatch,
+                onlyDelivery = appSnap.onlyDeliveryGlobal
+            )
+
+            // Вычисляем медианную цену только по прошедшим фильтр лотам, приведённым к валюте радара
+            val matchedListings = listings.filter { OlxParser.matchesWatchSmart(it, effectiveWatch, matchOptions) }
+            val batchPrices = matchedListings.mapNotNull { l ->
+                val p = l.price ?: return@mapNotNull null
+                if (p <= 0) return@mapNotNull null
+                val lCurr = OlxParser.normalizeCurrency(l.currency)
+                if (lCurr.isBlank() || lCurr == OlxParser.normalizeCurrency(effectiveWatch.priceCurrency)) p
+                else OlxParser.convertPriceToTargetCurrency(
+                    p, lCurr, effectiveWatch.priceCurrency, appSnap.usdToUahRate, appSnap.eurToUahRate
+                )
+            }.sorted()
+            val batchMedian = if (batchPrices.size >= 3) batchPrices[batchPrices.size / 2] else null
+
+            val seenIds = db.seenItemDao().getSeenIds(watch.id).toSet()
 
             // B2: Bug "First lot swallowed" fixed:
             // Use watch.initialized flag instead of seenIds.isEmpty().
             if (!watch.initialized) {
-                // Первый опрос: тихо сохраняем первые актуальные лоты (до 15 шт), чтобы радар не был пустым!
-                var initialSaved = 0
-                for (listing in listings) {
-                    if (RadarState.status.value.isPaused) return
-                    db.seenItemDao().markSeenAndPrune(
+                val batchSeen = listings.map { listing ->
+                    ua.magerko.olxradar.data.model.SeenItem(
                         watchId = watch.id,
                         listingId = listing.id,
                         lastPushedAt = listing.pushedAt,
-                        lastPrice = listing.price
+                        lastPrice = listing.price,
+                        lastCurrency = listing.currency?.let { OlxParser.normalizeCurrency(it) },
+                        addedAt = now
                     )
-                    seenIds.add(listing.id)
-                    if (initialSaved < 15 && OlxParser.matchesWatch(listing, watch)) {
-                        val finding = Finding(
-                            watchId = watch.id,
-                            listingId = listing.id,
-                            title = listing.title,
-                            description = listing.description,
-                            price = listing.price,
-                            currency = listing.currency,
-                            cityName = listing.cityName,
-                            url = listing.url,
-                            photoUrl = listing.photoUrl,
-                            reason = "new",
-                            createdAt = listing.createdAt,
-                            foundAt = now,
-                            isRead = false,
-                            conditionScore = OlxParser.conditionScore(listing),
-                            isDelivery = listing.isDelivery
-                        )
-                        db.findingDao().insertFinding(finding)
-                        initialSaved++
+                }
+                db.seenItemDao().markSeenBatchAndPrune(watch.id, batchSeen)
+
+                var initialSaved = 0
+                for (listing in matchedListings) {
+                    if (initialSaved >= 15 || RadarState.status.value.isPaused) break
+                    val sellerKey = listing.sellerName?.trim()?.lowercase()
+                    if (!sellerKey.isNullOrBlank() && db.sellerBlacklistDao().isBlocked(sellerKey)) {
+                        continue
                     }
+                    val existing = db.findingDao().getFindingByWatchAndListing(watch.id, listing.id)
+                    if (existing != null) continue
+                    val condScore = OlxParser.conditionScore(listing)
+                    val dealScore = OlxParser.computeDealScore(
+                        listing, effectiveWatch, batchMedian, condScore, appSnap.usdToUahRate, appSnap.eurToUahRate
+                    )
+                    val photosJson = listing.photoUrls.take(5).takeIf { it.isNotEmpty() }?.let {
+                        org.json.JSONArray(it).toString()
+                    }
+                    val finding = Finding(
+                        watchId = watch.id,
+                        listingId = listing.id,
+                        title = listing.title,
+                        description = listing.description,
+                        price = listing.price,
+                        currency = listing.currency,
+                        cityName = listing.cityName,
+                        url = listing.url,
+                        photoUrl = listing.photoUrl,
+                        reason = "new",
+                        createdAt = listing.createdAt,
+                        foundAt = now,
+                        isRead = false,
+                        conditionScore = condScore,
+                        isDelivery = listing.isDelivery,
+                        dealScore = dealScore,
+                        photoUrlsJson = photosJson,
+                        sellerName = listing.sellerName
+                    )
+                    db.findingDao().insertFinding(finding)
+                    if (listing.price != null && listing.price > 0) {
+                        val latestHist = db.priceHistoryDao().getLatestForListing(listing.id)
+                        if (latestHist == null || latestHist.price != listing.price) {
+                            db.priceHistoryDao().insert(
+                                ua.magerko.olxradar.data.model.PriceHistory(
+                                    watchId = watch.id,
+                                    listingId = listing.id,
+                                    price = listing.price,
+                                    currency = OlxParser.normalizeCurrency(listing.currency).ifBlank { listing.currency },
+                                    recordedAt = now
+                                )
+                            )
+                        }
+                    }
+                    initialSaved++
                 }
                 db.watchDao().setInitialized(watch.id, true)
+                if (initialSaved > 0) {
+                    ua.magerko.olxradar.data.backup.PersistentStorageManager.scheduleAutoBackup(this@MonitorService)
+                }
             } else {
                 val inQuietHours = isQuietHours(prefs)
                 val isSnoozed = watch.snoozedUntil != null && now < watch.snoozedUntil
+                var savedAnyNew = false
 
-                for (listing in listings) {
+                for (listing in matchedListings) {
                     if (RadarState.status.value.isPaused) return
-                    if (!OlxParser.matchesWatch(listing, watch)) {
-                        continue
-                    }
 
                     val isNew = listing.id !in seenIds
+                    val seenItem = if (!isNew) db.seenItemDao().getSeenItem(watch.id, listing.id) else null
                     val isPushup = if (!isNew && watch.notifyMode == "new_pushup" && listing.pushedAt != null) {
-                        val lastPushed = db.seenItemDao().getLastPushedAt(watch.id, listing.id)
-                        lastPushed != null && listing.pushedAt > lastPushed
+                        val lastPushed = seenItem?.lastPushedAt
+                        lastPushed == null || listing.pushedAt > lastPushed
                     } else false
 
-                    if (isNew || isPushup) {
-                        seenIds.add(listing.id)
-                        val reason = if (isNew) "new" else "pushup"
+                    // Отслеживание снижения цены с учётом совпадения/конвертации валют
+                    val oldPrice = seenItem?.lastPrice
+                    val oldCurrency = OlxParser.normalizeCurrency(seenItem?.lastCurrency)
+                    val curCurrency = OlxParser.normalizeCurrency(listing.currency)
+                    val normalizedOldPrice = when {
+                        oldPrice == null || oldPrice <= 0 -> null
+                        oldCurrency.isBlank() || curCurrency.isBlank() || oldCurrency == curCurrency -> oldPrice
+                        else -> OlxParser.convertPriceToTargetCurrency(
+                            oldPrice, oldCurrency, curCurrency, appSnap.usdToUahRate, appSnap.eurToUahRate
+                        )
+                    }
+                    val isPriceDrop = if (!isNew && appSnap.trackPriceDrops && listing.price != null && normalizedOldPrice != null && normalizedOldPrice > 0 && listing.price < normalizedOldPrice) {
+                        val dropPct = ((normalizedOldPrice - listing.price).toDouble() / normalizedOldPrice) * 100.0
+                        dropPct >= appSnap.minPriceDropPercent
+                    } else false
+
+                    if (isNew || isPushup || isPriceDrop) {
+                        val sellerKey = listing.sellerName?.trim()?.lowercase()
+                        if (!sellerKey.isNullOrBlank() && db.sellerBlacklistDao().isBlocked(sellerKey)) {
+                            db.seenItemDao().markSeenAndPrune(
+                                watchId = watch.id,
+                                listingId = listing.id,
+                                lastPushedAt = listing.pushedAt,
+                                lastPrice = listing.price,
+                                lastCurrency = curCurrency.takeIf { it.isNotBlank() }
+                            )
+                            continue
+                        }
+                        val reason = when {
+                            isNew -> "new"
+                            isPriceDrop -> "price_drop"
+                            else -> "pushup"
+                        }
 
                         // Multi-stage filtering: evaluate with AI filter engine
-                        val aiEval = aiFilterEngine.evaluateListing(listing, watch)
+                        val aiEval = aiFilterEngine.evaluateListing(listing, effectiveWatch)
                         kotlinx.coroutines.delay(500)
 
-                        // Mark seen and update last price/pushed_at
+                        // Mark seen and update last price/currency/pushed_at
                         db.seenItemDao().markSeenAndPrune(
                             watchId = watch.id,
                             listingId = listing.id,
                             lastPushedAt = listing.pushedAt,
-                            lastPrice = listing.price
+                            lastPrice = listing.price,
+                            lastCurrency = curCurrency.takeIf { it.isNotBlank() }
                         )
 
                         if (aiEval.shouldSaveFinding) {
-                            val existing = db.findingDao().getFindingByListingId(listing.id)
-                            val finding = if (existing != null) {
-                                existing.copy(
-                                    watchId = watch.id,
+                            val condScore = OlxParser.conditionScore(listing)
+                            val dealScore = OlxParser.computeDealScore(
+                                listing, effectiveWatch, batchMedian, condScore, appSnap.usdToUahRate, appSnap.eurToUahRate
+                            )
+                            val photosJson = listing.photoUrls.take(5).takeIf { it.isNotEmpty() }?.let {
+                                org.json.JSONArray(it).toString()
+                            }
+                            val existingFinding = db.findingDao().getFindingByWatchAndListing(watch.id, listing.id)
+                            val finding = if (existingFinding != null) {
+                                existingFinding.copy(
                                     title = listing.title,
                                     description = listing.description,
                                     price = listing.price,
                                     currency = listing.currency,
                                     cityName = listing.cityName,
-                                    url = listing.url,
-                                    photoUrl = listing.photoUrl,
+                                    photoUrl = listing.photoUrl ?: existingFinding.photoUrl,
                                     reason = reason,
-                                    createdAt = listing.createdAt,
-                                    conditionScore = OlxParser.conditionScore(listing),
-                                    aiScore = aiEval.result?.confidence,
+                                    foundAt = now,
+                                    isRead = false,
+                                    conditionScore = condScore,
+                                    aiScore = aiEval.result?.confidence ?: existingFinding.aiScore,
                                     aiStatus = aiEval.status,
-                                    aiProduct = aiEval.result?.detectedProduct,
-                                    aiModel = aiEval.result?.detectedModel,
-                                    aiPhotoMatch = aiEval.result?.photoMatchesTitle,
-                                    aiReasons = aiEval.result?.reasons?.joinToString("\n• ", prefix = "• "),
-                                    aiRejectReason = aiEval.result?.rejectReason,
-                                    aiDetailsJson = aiEval.result?.toJsonString(),
-                                    isDelivery = listing.isDelivery
+                                    aiProduct = aiEval.result?.detectedProduct ?: existingFinding.aiProduct,
+                                    aiModel = aiEval.result?.detectedModel ?: existingFinding.aiModel,
+                                    aiPhotoMatch = aiEval.result?.photoMatchesTitle ?: existingFinding.aiPhotoMatch,
+                                    aiReasons = aiEval.result?.reasons?.joinToString("\n• ", prefix = "• ") ?: existingFinding.aiReasons,
+                                    aiRejectReason = aiEval.result?.rejectReason ?: existingFinding.aiRejectReason,
+                                    aiDetailsJson = aiEval.result?.toJsonString() ?: existingFinding.aiDetailsJson,
+                                    isDelivery = listing.isDelivery,
+                                    oldPrice = if (isPriceDrop) normalizedOldPrice else existingFinding.oldPrice,
+                                    dealScore = dealScore,
+                                    photoUrlsJson = photosJson ?: existingFinding.photoUrlsJson,
+                                    sellerName = listing.sellerName ?: existingFinding.sellerName
                                 )
                             } else {
                                 Finding(
@@ -362,7 +506,7 @@ class MonitorService : Service() {
                                     createdAt = listing.createdAt,
                                     foundAt = now,
                                     isRead = false,
-                                    conditionScore = OlxParser.conditionScore(listing),
+                                    conditionScore = condScore,
                                     aiScore = aiEval.result?.confidence,
                                     aiStatus = aiEval.status,
                                     aiProduct = aiEval.result?.detectedProduct,
@@ -371,24 +515,54 @@ class MonitorService : Service() {
                                     aiReasons = aiEval.result?.reasons?.joinToString("\n• ", prefix = "• "),
                                     aiRejectReason = aiEval.result?.rejectReason,
                                     aiDetailsJson = aiEval.result?.toJsonString(),
-                                    isDelivery = listing.isDelivery
+                                    isDelivery = listing.isDelivery,
+                                    oldPrice = if (isPriceDrop) normalizedOldPrice else null,
+                                    dealScore = dealScore,
+                                    photoUrlsJson = photosJson,
+                                    sellerName = listing.sellerName
                                 )
                             }
-                            val insertedId = db.findingDao().insertFinding(finding)
-                            val savedFinding = if (finding.id == 0L) finding.copy(id = insertedId) else finding
 
-                            // B11: Silence notifications in quiet hours and when snoozed
+                            val savedFinding = if (existingFinding != null) {
+                                db.findingDao().updateFinding(finding)
+                                finding
+                            } else {
+                                val insertedId = db.findingDao().insertFinding(finding)
+                                if (finding.id == 0L) finding.copy(id = insertedId) else finding
+                            }
+                            if (listing.price != null && listing.price > 0) {
+                                val latestHist = db.priceHistoryDao().getLatestForListing(listing.id)
+                                if (latestHist == null || latestHist.price != listing.price) {
+                                    db.priceHistoryDao().insert(
+                                        ua.magerko.olxradar.data.model.PriceHistory(
+                                            watchId = watch.id,
+                                            listingId = listing.id,
+                                            price = listing.price,
+                                            currency = curCurrency.ifBlank { listing.currency },
+                                            recordedAt = now
+                                        )
+                                    )
+                                }
+                            }
+                            savedAnyNew = true
+
                             val shouldNotify = if (aiEval.status == ua.magerko.olxradar.ai.AiStatus.REJECTED) {
                                 aiPreferences.isNotifyRejected
+                            } else if (isPriceDrop && !appSnap.notifPriceDrops) {
+                                false
                             } else {
                                 aiEval.shouldNotify
                             }
 
                             if (!inQuietHours && !isSnoozed && shouldNotify) {
                                 notificationHelper.sendAlertNotificationAsync(savedFinding, serviceScope)
+                                TelegramNotifier.sendFindingAsync(this@MonitorService, savedFinding, effectiveWatch.title, serviceScope)
                             }
                         }
                     }
+                }
+                if (savedAnyNew) {
+                    ua.magerko.olxradar.data.backup.PersistentStorageManager.scheduleAutoBackup(this@MonitorService)
                 }
             }
 
@@ -412,6 +586,7 @@ class MonitorService : Service() {
             nextRunMap[watch.id] = now + nextIntervalMs
 
         } catch (e: Exception) {
+            if (e is CancellationException && e !is TimeoutCancellationException) throw e
             // B1: Error handling — classify error, update DAO, RadarState, Log.w
             val (errorMsg, httpCode) = classifyError(e)
             AppLog.w(TAG, "Ошибка радара '${watch.query}': $errorMsg", e)
@@ -504,6 +679,9 @@ class MonitorService : Service() {
         RadarState.setPaused(false)
         loopJob?.cancel()
         serviceScope.cancel()
+        if (::chromiumBridge.isInitialized) {
+            chromiumBridge.destroy()
+        }
         super.onDestroy()
     }
 

@@ -24,7 +24,13 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
                     ua.magerko.olxradar.ai.AiImageProcessor(),
                     db.aiCacheDao()
                 )
-                FindingsViewModel(db.findingDao(), db.watchDao(), aiFilterEngine) as T
+                FindingsViewModel(
+                    db.findingDao(),
+                    db.watchDao(),
+                    aiFilterEngine,
+                    db.sellerBlacklistDao(),
+                    db.priceHistoryDao()
+                ) as T
             }
             modelClass.isAssignableFrom(WatchesViewModel::class.java) -> {
                 val chromiumBridge = ChromiumBridge(appContext)

@@ -18,7 +18,6 @@ import kotlinx.coroutines.sync.withPermit
 import ua.magerko.olxradar.R
 import ua.magerko.olxradar.data.model.Finding
 import ua.magerko.olxradar.ui.MainActivity
-import ua.magerko.olxradar.util.AppLog
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -32,9 +31,8 @@ class NotificationHelper(private val context: Context) {
         const val SERVICE_CHANNEL_ID = "olx_radar_service"
         const val ALERTS_CHANNEL_ID = "olx_radar_alerts"
         const val SERVICE_NOTIFICATION_ID = 1001
-        private const val ALERT_DEDUPLICATION_WINDOW_MS = 10 * 60 * 1000L // 10 минут
+        private const val ALERT_DEDUP_WINDOW_MS = 10 * 60 * 1000L
 
-        // Глобальный кэш недавно отправленных уведомлений для предотвращения дублей
         private val recentAlertsCache = java.util.concurrent.ConcurrentHashMap<Long, Long>()
 
         /**
@@ -133,9 +131,10 @@ class NotificationHelper(private val context: Context) {
      * and sends alert notification without blocking the caller loop.
      */
     fun sendAlertNotificationAsync(finding: Finding, scope: CoroutineScope) {
+        val appSnap = ua.magerko.olxradar.data.prefs.AppPreferences.state.value
         scope.launch {
             var bitmap: Bitmap? = null
-            if (!finding.photoUrl.isNullOrEmpty()) {
+            if (appSnap.notifShowPhotos && !finding.photoUrl.isNullOrEmpty()) {
                 bitmap = try {
                     withTimeoutOrNull(3000L) {
                         imageDownloadSemaphore.withPermit {
@@ -157,18 +156,20 @@ class NotificationHelper(private val context: Context) {
      */
     fun sendAlertNotification(finding: Finding, bitmap: Bitmap? = null) {
         val now = System.currentTimeMillis()
-        val lastSent = recentAlertsCache[finding.listingId]
-        if (lastSent != null && (now - lastSent) < ALERT_DEDUPLICATION_WINDOW_MS) {
-            AppLog.i(TAG, "Пропуск дублирующего уведомления для лота ${finding.listingId} (уже отправлено ${(now - lastSent)/1000}с назад)")
-            return
-        }
-        recentAlertsCache[finding.listingId] = now
-        if (recentAlertsCache.size > 300) {
-            val cutoff = now - ALERT_DEDUPLICATION_WINDOW_MS
-            recentAlertsCache.entries.removeIf { it.value < cutoff }
+        if (finding.reason != "price_drop") {
+            val lastSent = recentAlertsCache[finding.listingId]
+            if (lastSent != null && (now - lastSent) < ALERT_DEDUP_WINDOW_MS) {
+                ua.magerko.olxradar.util.AppLog.i(TAG, "Пропуск дублирующего уведомления для лота ${finding.listingId}")
+                return
+            }
+            recentAlertsCache[finding.listingId] = now
+            if (recentAlertsCache.size > 300) {
+                val cutoff = now - ALERT_DEDUP_WINDOW_MS
+                recentAlertsCache.entries.removeIf { it.value < cutoff }
+            }
         }
 
-        val notifId = toNotificationId(finding.listingId)
+        val notifId = toNotificationId(finding.listingId * 31L + finding.watchId)
         val requestCode = notifId
         val groupKey = "watch_group_${finding.watchId}"
 
@@ -203,11 +204,17 @@ class NotificationHelper(private val context: Context) {
             context.getString(R.string.price_negotiable)
         }
 
-        val badge = if (finding.reason == "pushup") {
-            context.getString(R.string.notif_badge_pushup)
-        } else {
-            context.getString(R.string.notif_badge_new)
+        val badge = when (finding.reason) {
+            "pushup" -> context.getString(R.string.notif_badge_pushup)
+            "price_drop" -> "📉 СКИДКА: "
+            else -> context.getString(R.string.notif_badge_new)
         }
+
+        val appSnap = ua.magerko.olxradar.data.prefs.AppPreferences.state.value
+        var notifDefaults = 0
+        if (appSnap.notifSoundEnabled) notifDefaults = notifDefaults or NotificationCompat.DEFAULT_SOUND
+        if (appSnap.notifVibrationEnabled) notifDefaults = notifDefaults or NotificationCompat.DEFAULT_VIBRATE
+        notifDefaults = notifDefaults or NotificationCompat.DEFAULT_LIGHTS
 
         val aiBadge = when (finding.aiStatus) {
             ua.magerko.olxradar.ai.AiStatus.MATCH -> finding.aiScore?.let { "[AI $it%] " } ?: "[AI ✓] "
@@ -226,6 +233,18 @@ class NotificationHelper(private val context: Context) {
             finding.title
         }
 
+        val favIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+            action = NotificationActionReceiver.ACTION_ADD_FAVORITE
+            putExtra(NotificationActionReceiver.EXTRA_FINDING_ID, finding.id)
+            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notifId)
+        }
+        val pFavIntent = PendingIntent.getBroadcast(
+            context,
+            requestCode + 2000000,
+            favIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val builder = NotificationCompat.Builder(context, ALERTS_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_radar)
             .setContentTitle(title)
@@ -233,11 +252,13 @@ class NotificationHelper(private val context: Context) {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(pIntent)
             .setAutoCancel(true)
-            .setGroup(groupKey)
+            .apply { if (appSnap.notifGroupByRadar) setGroup(groupKey) }
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setDefaults(notifDefaults)
+            .setSilent(!appSnap.notifSoundEnabled && !appSnap.notifVibrationEnabled)
             .addAction(R.drawable.ic_open, context.getString(R.string.action_open_olx), pBrowserIntent)
+            .addAction(android.R.drawable.btn_star_big_on, "В избранное", pFavIntent)
 
         if (bitmap != null) {
             builder.setLargeIcon(bitmap)
@@ -249,6 +270,8 @@ class NotificationHelper(private val context: Context) {
         }
 
         notificationManager.notify(notifId, builder.build())
+
+        if (!appSnap.notifGroupByRadar) return
 
         // Send group summary notification (B7)
         val summaryIntent = Intent(context, MainActivity::class.java).apply {
@@ -338,17 +361,22 @@ class NotificationHelper(private val context: Context) {
     }
 
     private fun downloadBitmap(urlStr: String): Bitmap? {
+        var connection: HttpURLConnection? = null
         return try {
             val url = URL(urlStr)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.doInput = true
-            connection.connectTimeout = 3000
-            connection.readTimeout = 3000
-            connection.connect()
-            val input: InputStream = connection.inputStream
-            BitmapFactory.decodeStream(input)
-        } catch (e: Exception) {
+            connection = (url.openConnection() as HttpURLConnection).apply {
+                doInput = true
+                connectTimeout = 3000
+                readTimeout = 3000
+                connect()
+            }
+            connection.inputStream.use { input ->
+                BitmapFactory.decodeStream(input)
+            }
+        } catch (_: Exception) {
             null
+        } finally {
+            connection?.disconnect()
         }
     }
 }

@@ -40,6 +40,7 @@ import ua.magerko.olxradar.ai.LiveAiItem
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiLiveStreamScreen(
+    reduceAnimations: Boolean = false,
     onNavigateToSettings: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -50,16 +51,24 @@ fun AiLiveStreamScreen(
     var showClearConfirmDialog by remember { mutableStateOf(false) }
     var showQueueSheet by remember { mutableStateOf(false) }
 
-    // Текстовый таймер для отображения живых секунд в карточке
-    var ticker by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(aiActivity.isBusy) {
-        while (aiActivity.isBusy) {
-            ticker = System.currentTimeMillis()
-            kotlinx.coroutines.delay(500)
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(15_000L)
+            nowMs = System.currentTimeMillis()
         }
     }
 
     val history = aiActivity.history
+    val approvedCount = remember(history) {
+        history.count { it.status.equals("APPROVED", ignoreCase = true) || it.status.equals("MATCH", ignoreCase = true) }
+    }
+    val rejectedCount = remember(history) {
+        history.count { it.status.equals("REJECTED", ignoreCase = true) }
+    }
+    val otherCount = remember(history, approvedCount, rejectedCount) {
+        (history.size - approvedCount - rejectedCount).coerceAtLeast(0)
+    }
     val filteredHistory = remember(history, filterMode) {
         when (filterMode) {
             "approved" -> history.filter { it.status.equals("APPROVED", ignoreCase = true) || it.status.equals("MATCH", ignoreCase = true) }
@@ -97,7 +106,7 @@ fun AiLiveStreamScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (isGlassTheme) Color.Transparent else CyberneticSurface)
+            .background(Color.Transparent)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
@@ -111,7 +120,8 @@ fun AiLiveStreamScreen(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
                     Box(
                         modifier = Modifier
@@ -131,37 +141,28 @@ fun AiLiveStreamScreen(
                         Text(
                             text = "ИИ-поток (Groq Vision)",
                             color = CyberneticOnSurface,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            // Pulsing live indicator
-                            val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-                            val pulseScale by infiniteTransition.animateFloat(
-                                initialValue = 0.8f,
-                                targetValue = 1.25f,
-                                animationSpec = infiniteRepeatable(
-                                    animation = tween(800, easing = FastOutSlowInEasing),
-                                    repeatMode = RepeatMode.Reverse
-                                ),
-                                label = "scale"
-                            )
-
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .scale(if (aiActivity.isBusy) pulseScale else 1f)
-                                    .clip(CircleShape)
-                                    .background(if (aiActivity.isBusy) CyberneticPrimary else CyberneticSecondary)
+                            StatusPulseDot(
+                                color = if (aiActivity.isBusy) CyberneticPrimary else CyberneticSecondary,
+                                isPulsing = aiActivity.isBusy,
+                                reduceAnimations = reduceAnimations,
+                                size = 8.dp
                             )
                             Text(
                                 text = if (aiActivity.isBusy) "Анализирует ссылку..." else "Ожидание новых ссылок",
                                 color = if (aiActivity.isBusy) CyberneticPrimary else CyberneticOnSurfaceVariant,
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -207,15 +208,14 @@ fun AiLiveStreamScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .widthIn(max = 680.dp),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 90.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 18.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
 
                     // HERO: CURRENTLY PROCESSING ITEM
-                    item {
+                    item(key = "hero", contentType = "hero") {
                         ActiveAiProcessingHero(
                             activity = aiActivity,
-                            currentMs = ticker,
                             onOpenUrl = { openUrl(it) },
                             onCopyUrl = { copyUrl(it) }
                         )
@@ -278,7 +278,6 @@ fun AiLiveStreamScreen(
                                 )
                             }
                             item {
-                                val approvedCount = history.count { it.status.equals("APPROVED", ignoreCase = true) || it.status.equals("MATCH", ignoreCase = true) }
                                 FilterChip(
                                     selected = filterMode == "approved",
                                     onClick = { filterMode = "approved" },
@@ -292,7 +291,6 @@ fun AiLiveStreamScreen(
                                 )
                             }
                             item {
-                                val rejectedCount = history.count { it.status.equals("REJECTED", ignoreCase = true) }
                                 FilterChip(
                                     selected = filterMode == "rejected",
                                     onClick = { filterMode = "rejected" },
@@ -306,11 +304,6 @@ fun AiLiveStreamScreen(
                                 )
                             }
                             item {
-                                val otherCount = history.count { 
-                                    !it.status.equals("APPROVED", ignoreCase = true) && 
-                                    !it.status.equals("MATCH", ignoreCase = true) && 
-                                    !it.status.equals("REJECTED", ignoreCase = true) 
-                                }
                                 FilterChip(
                                     selected = filterMode == "other",
                                     onClick = { filterMode = "other" },
@@ -365,9 +358,10 @@ fun AiLiveStreamScreen(
                             }
                         }
                     } else {
-                        items(filteredHistory, key = { it.id }) { item ->
+                        items(filteredHistory, key = { it.id }, contentType = { "ai_history" }) { item ->
                             ProcessedAiItemCard(
                                 item = item,
+                                nowMs = nowMs,
                                 onOpenUrl = { openUrl(it) },
                                 onCopyUrl = { copyUrl(it) }
                             )
@@ -407,7 +401,7 @@ fun AiLiveStreamScreen(
     if (showQueueSheet) {
         ModalBottomSheet(
             onDismissRequest = { showQueueSheet = false },
-            containerColor = CyberneticSurfaceContainerLow,
+            containerColor = CyberneticModalSurface,
             dragHandle = { BottomSheetDefaults.DragHandle(color = CyberneticTertiary.copy(alpha = 0.5f)) }
         ) {
             QueuedAiSheetContent(
@@ -427,14 +421,20 @@ fun AiLiveStreamScreen(
 @Composable
 private fun ActiveAiProcessingHero(
     activity: AiRuntime.Activity,
-    currentMs: Long,
     onOpenUrl: (String) -> Unit,
     onCopyUrl: (String) -> Unit
 ) {
     val current = activity.currentItem
     val isBusy = activity.isBusy
+    var currentMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(isBusy) {
+        while (isBusy) {
+            currentMs = System.currentTimeMillis()
+            kotlinx.coroutines.delay(500L)
+        }
+    }
     val busySeconds = if (isBusy && activity.startedAtMs > 0) {
-        (((currentMs.takeIf { it > 0 } ?: System.currentTimeMillis()) - activity.startedAtMs).coerceAtLeast(0) / 1000).toInt()
+        ((currentMs - activity.startedAtMs).coerceAtLeast(0) / 1000).toInt()
     } else 0
 
     Card(
@@ -664,6 +664,7 @@ private fun ActiveAiProcessingHero(
 @Composable
 private fun ProcessedAiItemCard(
     item: LiveAiItem,
+    nowMs: Long,
     onOpenUrl: (String) -> Unit,
     onCopyUrl: (String) -> Unit
 ) {
@@ -729,18 +730,16 @@ private fun ProcessedAiItemCard(
                         )
                     }
 
-                    val agoSec = ((System.currentTimeMillis() - item.finishedAtMs) / 1000).coerceAtLeast(0)
-                    val agoText = when {
-                        agoSec < 10 -> "только что"
-                        agoSec < 60 -> "${agoSec}с назад"
-                        agoSec < 3600 -> "${agoSec / 60}м назад"
-                        else -> "${agoSec / 3600}ч назад"
+                    val agoText = remember(item.finishedAtMs, nowMs) {
+                        CachedFormatters.formatShortAgo(item.finishedAtMs, nowMs)
                     }
-                    val durationText = if (!isCached && item.startedAtMs > 0 && item.finishedAtMs >= item.startedAtMs) {
-                        String.format(java.util.Locale.US, "%.1fс", item.durationSec)
-                    } else if (isCached) {
-                        "кэш"
-                    } else null
+                    val durationText = remember(isCached, item.startedAtMs, item.finishedAtMs) {
+                        if (!isCached && item.startedAtMs > 0 && item.finishedAtMs >= item.startedAtMs) {
+                            String.format(java.util.Locale.US, "%.1fс", item.durationSec)
+                        } else if (isCached) {
+                            "кэш"
+                        } else null
+                    }
 
                     Text(
                         text = "· $agoText" + (durationText?.let { " ($it)" } ?: ""),
@@ -1008,7 +1007,7 @@ private fun QueuedAiStreamBanner(
                         }
                     }
                     Text(
-                        text = "Лоты > 2 мин • Нажмите для просмотра",
+                        text = "Лоты > 30 сек • Нажмите для просмотра",
                         color = CyberneticOnSurfaceVariant,
                         fontSize = 11.sp
                     )
@@ -1116,7 +1115,7 @@ private fun QueuedAiSheetContent(
         }
 
         Text(
-            text = "Лоты, анализ которых занял более 2 минут, отложены в эту очередь и обрабатываются нейросетью в фоне без задержки поиска.",
+            text = "Лоты, анализ которых занял более 30 секунд, отложены в эту очередь и обрабатываются нейросетью в фоне без задержки поиска.",
             color = CyberneticOnSurfaceVariant,
             fontSize = 12.sp,
             lineHeight = 16.sp
@@ -1192,7 +1191,7 @@ private fun QueuedItemCard(
                     color = CyberneticTertiary.copy(alpha = 0.16f)
                 ) {
                     Text(
-                        text = "⏳ В очереди (> 2 мин)",
+                        text = "⏳ В очереди (> 30с)",
                         color = CyberneticTertiary,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -1264,7 +1263,7 @@ private fun QueuedItemCard(
                     }
                     IconButton(
                         onClick = {
-                            ua.magerko.olxradar.ai.AiQueueManager.cancel(item.listingId)
+                            ua.magerko.olxradar.ai.AiQueueManager.cancelAndDelete(item.listingId)
                             Toast.makeText(context, "Удалено из очереди", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.size(28.dp)

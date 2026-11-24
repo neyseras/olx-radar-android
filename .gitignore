@@ -27,6 +27,7 @@ keystore.properties
 
 # Built binaries
 *.apk
+!releases/*.apk
 *.aab
 *.ap_
 *.dex

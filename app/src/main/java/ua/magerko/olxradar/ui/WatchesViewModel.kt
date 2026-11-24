@@ -4,12 +4,19 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ua.magerko.olxradar.R
+import ua.magerko.olxradar.data.backup.PersistentStorageManager
+import ua.magerko.olxradar.data.backup.RadarBackup
 import ua.magerko.olxradar.data.local.FindingDao
 import ua.magerko.olxradar.data.local.WatchDao
-import ua.magerko.olxradar.data.backup.RadarBackup
 import ua.magerko.olxradar.data.model.Listing
 import ua.magerko.olxradar.data.model.Watch
 import ua.magerko.olxradar.data.network.OlxSearchService
@@ -25,9 +32,6 @@ class WatchesViewModel(
 
     val radarStatus: StateFlow<ServiceStatus> = RadarState.status
 
-    // PERF: RadarState.status больше не входит в combine — этот flow обновлялся
-    // чуть ли не каждую секунду и заставлял весь список радаров перерисовываться,
-    // хотя Compose-карточки «живые» поля не используют (они в StatusViewModel).
     val watchesUi: StateFlow<List<WatchItemUi>> = combine(
         watchDao.getAllWatchesFlow(),
         findingDao.getFindingsCountsFlow()
@@ -49,12 +53,14 @@ class WatchesViewModel(
     fun toggleActive(watch: Watch, isActive: Boolean) {
         viewModelScope.launch {
             watchDao.setWatchActive(watch.id, isActive)
+            PersistentStorageManager.scheduleAutoBackup(getApplication())
         }
     }
 
     fun deleteWatch(watch: Watch) {
         viewModelScope.launch {
             watchDao.deleteWatchCascade(watch.id)
+            PersistentStorageManager.scheduleAutoBackup(getApplication())
         }
     }
 
@@ -72,66 +78,61 @@ class WatchesViewModel(
                 lastHttpCode = null
             )
             watchDao.insertWatch(copy)
+            PersistentStorageManager.scheduleAutoBackup(getApplication())
         }
     }
 
-    /**
-     * BUGFIX: при смене поискового запроса радар должен пройти «первичный опрос» заново,
-     * иначе первый цикл после редактирования молча проглотит все совпадения (initialized = true). */
     fun saveWatch(watch: Watch) {
         viewModelScope.launch {
             if (watch.id == 0L) {
-                watchDao.insertWatch(watch)
+                val clean = if (ua.magerko.olxradar.data.network.OlxCities.isMultiCity(watch.cityName)) {
+                    watch.copy(cityId = null)
+                } else watch
+                watchDao.insertWatch(clean)
             } else {
                 val existing = watchDao.getWatchById(watch.id)
-                val toSave =
-                    if (existing != null && existing.query.trim() != watch.query.trim()) watch.copy(initialized = false)
-                    else watch
+                val queryChanged = existing != null && existing.query.trim() != watch.query.trim()
+                val cityChanged = existing != null && existing.cityName?.trim() != watch.cityName?.trim()
+                var toSave = watch
+                if (queryChanged) toSave = toSave.copy(initialized = false)
+                if (cityChanged || ua.magerko.olxradar.data.network.OlxCities.isMultiCity(watch.cityName)) {
+                    toSave = toSave.copy(cityId = null)
+                }
                 watchDao.updateWatch(toSave)
             }
+            PersistentStorageManager.scheduleAutoBackup(getApplication())
         }
     }
 
-    suspend fun checkListings(watch: Watch): Result<List<Listing>> {
-        return try {
-            val results = olxSearchService.search(watch, limit = 5)
+    suspend fun checkListings(watch: Watch): Result<List<Listing>> = withContext(Dispatchers.IO) {
+        try {
+            val results = olxSearchService.search(watch, limit = 8)
             Result.success(results)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
+
     /** Экспорт всех радаров в JSON для файла olx-radar-list.config. */
-    suspend fun buildBackupJson(): String {
+    suspend fun buildBackupJson(): String = withContext(Dispatchers.IO) {
         val watches = watchDao.getAllWatches()
-        return RadarBackup.toJson(watches)
+        RadarBackup.toJson(watches)
     }
 
-    /** Импорт радаров из JSON. Возвращает Pair(импортировано, пропущено-дубликатов). */
+    /** Импорт радаров (и при наличии v2 — настроек и находок) из JSON. */
     suspend fun importBackupJson(json: String): Pair<Int, Int> {
-        val incoming = RadarBackup.fromJson(json)
-        val existing = watchDao.getAllWatches()
-        var imported = 0
-        var skipped = 0
-        val known = existing.map { Triple(it.query.lowercase().trim(), it.priceFrom, it.priceTo) }.toMutableSet()
-        for (w in incoming) {
-            val key = Triple(w.query.lowercase().trim(), w.priceFrom, w.priceTo)
-            if (known.contains(key)) {
-                skipped++
-                continue
-            }
-            watchDao.insertWatch(
-                w.copy(
-                    id = 0,
-                    createdAt = System.currentTimeMillis(),
-                    initialized = false,
-                    lastSuccessAt = null,
-                    lastError = null,
-                    lastHttpCode = null
-                )
-            )
-            known.add(key)
-            imported++
-        }
-        return Pair(imported, skipped)
+        val result = PersistentStorageManager.restoreFromBackupJson(getApplication(), json)
+        PersistentStorageManager.scheduleAutoBackup(getApplication())
+        return Pair(result.watchesImported, result.watchesSkipped)
+    }
+
+    suspend fun discoverSurvivingBackup(): RadarBackup.FullBackupData? {
+        val raw = PersistentStorageManager.discoverSurvivingBackupJson(getApplication()) ?: return null
+        return runCatching { RadarBackup.parseFullBackup(raw) }.getOrNull()
+    }
+
+    suspend fun restoreSurvivingBackup(): PersistentStorageManager.RestoreResult? {
+        val raw = PersistentStorageManager.discoverSurvivingBackupJson(getApplication()) ?: return null
+        return PersistentStorageManager.restoreFromBackupJson(getApplication(), raw)
     }
 }

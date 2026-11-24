@@ -37,21 +37,25 @@ object AiQueueManager {
     private var isWorkerRunning = false
 
     private val cancelledListingIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
+    private val enqueuedListingIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
 
     fun cancel(listingId: Long) {
-        cancelledListingIds.add(listingId)
+        if (enqueuedListingIds.remove(listingId)) {
+            cancelledListingIds.add(listingId)
+        }
         AiRuntime.dequeue(listingId)
-        scope.launch {
-            try {
-                database?.findingDao()?.deleteFindingByListingId(listingId)
-            } catch (e: Exception) {
-                AppLog.w(TAG, "Ошибка удаления отменённого лота $listingId из БД", e)
-            }
+    }
+
+    fun cancelAndDelete(listingId: Long) {
+        cancel(listingId)
+        scope.launch(Dispatchers.IO) {
+            database?.findingDao()?.deleteFindingByListingId(listingId)
         }
     }
 
     fun cancelAll() {
         cancelledListingIds.clear()
+        enqueuedListingIds.clear()
         AiRuntime.clearQueue()
     }
 
@@ -69,6 +73,7 @@ object AiQueueManager {
     }
 
     fun enqueue(listing: Listing, watch: Watch) {
+        enqueuedListingIds.add(listing.id)
         val task = QueuedTask(listing, watch)
         tasksChannel.trySend(task)
         ensureWorkerStarted()
@@ -159,10 +164,15 @@ object AiQueueManager {
                 )
                 db.findingDao().updateFinding(updated)
 
-                // Если лот подошёл — отправляем уведомление пользователю
-                if (eval.status == AiStatus.MATCH || eval.status == AiStatus.NEEDS_REVIEW) {
+                // Если лот подошёл и сейчас не тихие часы/снуз — отправляем уведомление пользователю
+                val inQuietHours = prefs?.let {
+                    ua.magerko.olxradar.service.MonitorService.isQuietHoursStatic(it)
+                } ?: false
+                val isSnoozed = watch.snoozedUntil != null && System.currentTimeMillis() < watch.snoozedUntil
+                if ((eval.status == AiStatus.MATCH || eval.status == AiStatus.NEEDS_REVIEW) && !inQuietHours && !isSnoozed) {
                     notificationHelper?.sendAlertNotificationAsync(updated, scope)
                 }
+                enqueuedListingIds.remove(listing.id)
                 AppLog.i(TAG, "Очередь ИИ: лот '${listing.title.take(50)}' обработан со статусом ${eval.status}")
             } else {
                 AppLog.i(TAG, "Очередь ИИ: лот '${listing.title.take(50)}' был удалён из базы во время анализа")

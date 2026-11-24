@@ -17,7 +17,9 @@ object AppLog {
 
     const val MAX_ENTRIES = 400
 
-    private val timeFormat = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
+    private val timeFormat = ThreadLocal.withInitial {
+        SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
+    }
 
     data class Entry(
         val timeMs: Long,
@@ -26,7 +28,7 @@ object AppLog {
         val message: String
     ) {
         fun formatted(): String =
-            "${timeFormat.format(Date(timeMs))} $level/$tag: $message"
+            "${timeFormat.get()?.format(Date(timeMs)) ?: ""} $level/$tag: $message"
     }
 
     private val entries = ArrayDeque<Entry>()

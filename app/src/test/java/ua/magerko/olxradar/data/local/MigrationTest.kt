@@ -142,9 +142,9 @@ class MigrationTest {
         v1Db.close()
         helper.close()
 
-        // 2. Open with Room v8 adding all migrations
+        // 2. Open with Room v11 adding all migrations
         val roomDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
             .build()
 
         runBlocking {
@@ -183,6 +183,16 @@ class MigrationTest {
             assertNull("Default ai_score must be null", finding.aiScore)
             assertNull("Default ai_status must be null", finding.aiStatus)
             assertFalse("Default is_delivery must be false", finding.isDelivery)
+            assertFalse("Default is_favorite must be false", finding.isFavorite)
+            assertNull("Default old_price must be null", finding.oldPrice)
+            assertNull("Default deal_score must be null", finding.dealScore)
+            assertNull("Default photo_urls_json must be null", finding.photoUrlsJson)
+            assertNull("Default seller_name must be null", finding.sellerName)
+
+            roomDb.sellerBlacklistDao().upsert(ua.magerko.olxradar.data.model.SellerBlacklist("scammer", "Scammer"))
+            assertTrue(roomDb.sellerBlacklistDao().isBlocked("scammer"))
+            roomDb.priceHistoryDao().insert(ua.magerko.olxradar.data.model.PriceHistory(watchId = watch1Id, listingId = 9991L, price = 15000, currency = "UAH"))
+            assertNotNull(roomDb.priceHistoryDao().getLatestForListing(9991L))
 
             // Verify AI Cache table exists and works
             roomDb.aiCacheDao().insert(AiCacheEntry(9991L, "{\"is_match\":true,\"confidence\":95}"))

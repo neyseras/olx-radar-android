@@ -137,8 +137,37 @@ data class Finding(
 
     // OLX доставка / безопасная сделка
     @ColumnInfo(name = "is_delivery", defaultValue = "0")
-    val isDelivery: Boolean = false
-)
+    val isDelivery: Boolean = false,
+
+    // Избранное, предыдущая цена (при снижении цены), локальный рейтинг сделки и все фото
+    @ColumnInfo(name = "is_favorite", defaultValue = "0")
+    val isFavorite: Boolean = false,
+    @ColumnInfo(name = "old_price")
+    val oldPrice: Int? = null,
+    @ColumnInfo(name = "deal_score")
+    val dealScore: Int? = null,
+    @ColumnInfo(name = "photo_urls_json")
+    val photoUrlsJson: String? = null,
+    @ColumnInfo(name = "seller_name")
+    val sellerName: String? = null
+) {
+    fun parsedPhotoUrls(): List<String> {
+        val raw = photoUrlsJson
+        if (!raw.isNullOrBlank()) {
+            try {
+                val arr = org.json.JSONArray(raw)
+                val list = mutableListOf<String>()
+                for (i in 0 until arr.length()) {
+                    val u = arr.optString(i, "")
+                    if (u.isNotBlank()) list.add(u)
+                }
+                if (list.isNotEmpty()) return list
+            } catch (_: Exception) {
+            }
+        }
+        return listOfNotNull(photoUrl?.takeIf { it.isNotBlank() })
+    }
+}
 
 @Entity(
     tableName = "seen_items",
@@ -157,6 +186,8 @@ data class SeenItem(
     val lastPushedAt: Long? = null,
     @ColumnInfo(name = "last_price")
     val lastPrice: Int? = null,
+    @ColumnInfo(name = "last_currency")
+    val lastCurrency: String? = null,
     @ColumnInfo(name = "added_at")
     val addedAt: Long = System.currentTimeMillis()
 )
@@ -178,12 +209,44 @@ data class Listing(
     val createdAt: Long,
     val pushedAt: Long?,
     val refreshedAt: Long?,
-    val isDelivery: Boolean = false
+    val isDelivery: Boolean = false,
+    val sellerName: String? = null
+)
+
+@Entity(tableName = "seller_blacklist")
+data class SellerBlacklist(
+    @PrimaryKey
+    @ColumnInfo(name = "seller_key")
+    val sellerKey: String,
+    @ColumnInfo(name = "display_name")
+    val displayName: String,
+    @ColumnInfo(name = "added_at")
+    val addedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "price_history",
+    indices = [
+        Index(value = ["listing_id", "recorded_at"], name = "idx_price_history_listing_time")
+    ]
+)
+data class PriceHistory(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    @ColumnInfo(name = "watch_id")
+    val watchId: Long,
+    @ColumnInfo(name = "listing_id")
+    val listingId: Long,
+    val price: Int,
+    val currency: String?,
+    @ColumnInfo(name = "recorded_at")
+    val recordedAt: Long = System.currentTimeMillis()
 )
 
 data class WatchPrice(
     @ColumnInfo(name = "watch_id") val watchId: Long,
-    @ColumnInfo(name = "price") val price: Int
+    @ColumnInfo(name = "price") val price: Int,
+    @ColumnInfo(name = "currency") val currency: String? = null
 )
 
 /**

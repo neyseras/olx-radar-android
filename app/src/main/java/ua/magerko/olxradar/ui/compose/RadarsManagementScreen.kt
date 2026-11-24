@@ -1,25 +1,21 @@
 package ua.magerko.olxradar.ui.compose
 
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -28,51 +24,83 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ua.magerko.olxradar.data.backup.RadarBackup
 import ua.magerko.olxradar.data.model.ConditionAnalyzer
+import ua.magerko.olxradar.data.model.Listing
 import ua.magerko.olxradar.data.model.OlxCategory
 import ua.magerko.olxradar.data.model.Watch
+import ua.magerko.olxradar.data.network.OlxCities
+import ua.magerko.olxradar.data.network.OlxUrlImporter
 import ua.magerko.olxradar.service.ServiceStatus
 import ua.magerko.olxradar.ui.WatchItemUi
+import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun RadarsManagementScreen(
     watchesUi: List<WatchItemUi>,
     radarStatus: ServiceStatus = ServiceStatus(),
-    globalIntervalSec: Int = 20,
+    globalIntervalSec: Int = 25,
+    reduceAnimations: Boolean = false,
+    initialSharedOlxUrl: String? = null,
+    onClearSharedOlxUrl: (() -> Unit)? = null,
     onToggleActive: (Watch, Boolean) -> Unit,
+    onToggleGlobalPause: (() -> Unit)? = null,
     onDeleteWatch: (Watch) -> Unit,
     onDuplicateWatch: (Watch) -> Unit,
     onSaveWatch: (Watch) -> Unit,
+    onTestWatch: (suspend (Watch) -> Result<List<Listing>>)? = null,
     onExportBackup: suspend () -> String,
     onImportBackup: suspend (String) -> Pair<Int, Int>
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var filterMode by remember { mutableStateOf("all") } // "all", "active", "paused", "new"
+    var filterMode by remember { mutableStateOf("all") }
     var showAddDialog by remember { mutableStateOf(false) }
     var editingWatch by remember { mutableStateOf<Watch?>(null) }
+    var pendingSharedUrl by remember { mutableStateOf<String?>(null) }
 
-    val activeCount = watchesUi.count { it.watch.isActive }
-    val totalFindings = watchesUi.sumOf { it.findingsCount }
+    LaunchedEffect(initialSharedOlxUrl) {
+        if (!initialSharedOlxUrl.isNullOrBlank()) {
+            pendingSharedUrl = initialSharedOlxUrl
+            editingWatch = null
+            showAddDialog = true
+            onClearSharedOlxUrl?.invoke()
+        }
+    }
+
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(10_000L)
+            nowMs = System.currentTimeMillis()
+        }
+    }
+
+    val activeCount = remember(watchesUi) { watchesUi.count { it.watch.isActive } }
+    val totalFindings = remember(watchesUi) { watchesUi.sumOf { it.findingsCount } }
+
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
             scope.launch {
                 try {
                     val json = onExportBackup()
-                    context.contentResolver.openOutputStream(uri, "wt")?.use { os ->
-                        os.write(json.toByteArray(Charsets.UTF_8))
-                        os.flush()
-                    } ?: error("Поток записи недоступен")
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri, "wt")?.use { os ->
+                            os.write(json.toByteArray(Charsets.UTF_8))
+                            os.flush()
+                        } ?: error("Поток записи недоступен")
+                    }
                     Toast.makeText(context, "Список радаров сохранён", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
                     Toast.makeText(context, "Ошибка сохранения: ${e.message}", Toast.LENGTH_LONG).show()
@@ -84,14 +112,16 @@ fun RadarsManagementScreen(
         if (uri != null) {
             scope.launch {
                 try {
-                    val json = context.contentResolver.openInputStream(uri)?.use {
-                        it.readBytes().toString(Charsets.UTF_8)
-                    } ?: error("Поток чтения недоступен")
+                    val json = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use {
+                            it.readBytes().toString(Charsets.UTF_8)
+                        } ?: error("Поток чтения недоступен")
+                    }
                     val (imported, skipped) = onImportBackup(json)
                     Toast.makeText(
                         context,
                         if (imported == 0 && skipped == 0) "Файл не содержит радаров"
-                        else "Импортировано: $imported · дубликатов пропущено: $skipped",
+                        else "Импортировано: $imported · пропущено дубликатов: $skipped",
                         Toast.LENGTH_LONG
                     ).show()
                 } catch (e: Exception) {
@@ -113,16 +143,14 @@ fun RadarsManagementScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (isGlassTheme) Color.Transparent else CyberneticSurface)
+            .background(Color.Transparent)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
             // TOP HEADER
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -131,39 +159,52 @@ fun RadarsManagementScreen(
                         text = "Мои радары",
                         color = CyberneticOnSurface,
                         fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.3).sp
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = (-0.4).sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(CyberneticSecondary)
+                        StatusPulseDot(
+                            color = if (activeCount > 0 && !radarStatus.isPaused) CyberneticSecondary else CyberneticOutline,
+                            isPulsing = activeCount > 0 && radarStatus.isRunning && !radarStatus.isPaused,
+                            reduceAnimations = reduceAnimations,
+                            size = 7.dp
                         )
                         Text(
-                            text = "$activeCount из ${watchesUi.size} активны",
-                            color = CyberneticSecondary,
+                            text = if (radarStatus.isPaused) "Сканер на паузе · $activeCount активных" else "$activeCount из ${watchesUi.size} активны",
+                            color = if (radarStatus.isPaused) CyberneticTertiary else CyberneticSecondary,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (onToggleGlobalPause != null) {
+                        IconButton(onClick = onToggleGlobalPause) {
+                            Icon(
+                                imageVector = if (radarStatus.isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                contentDescription = if (radarStatus.isPaused) "Возобновить" else "Пауза",
+                                tint = if (radarStatus.isPaused) CyberneticSecondary else CyberneticTertiary
+                            )
+                        }
+                    }
                     IconButton(onClick = { exportLauncher.launch(RadarBackup.DEFAULT_FILE_NAME) }) {
                         Icon(
                             imageVector = Icons.Default.IosShare,
-                            contentDescription = "Сохранить радары (list.config)",
+                            contentDescription = "Экспорт радаров",
                             tint = CyberneticOnSurfaceVariant
                         )
                     }
                     IconButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) {
                         Icon(
                             imageVector = Icons.Default.FileDownload,
-                            contentDescription = "Загрузить радары (list.config)",
+                            contentDescription = "Импорт радаров",
                             tint = CyberneticOnSurfaceVariant
                         )
                     }
@@ -171,13 +212,12 @@ fun RadarsManagementScreen(
             }
 
             // SUMMARY HERO DASHBOARD CARD
-            Card(
+            RadarSurfaceCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .border(1.dp, CyberneticOutlineVariant.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = CyberneticSurfaceContainerHigh)
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                shape = RoundedCornerShape(18.dp),
+                containerColor = CyberneticSurfaceContainerHigh.copy(alpha = if (isGlassTheme) 0.8f else 1f)
             ) {
                 Column(
                     modifier = Modifier.padding(14.dp),
@@ -193,7 +233,7 @@ fun RadarsManagementScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Radar,
+                                imageVector = Icons.Default.TrackChanges,
                                 contentDescription = null,
                                 tint = CyberneticPrimary,
                                 modifier = Modifier.size(18.dp)
@@ -201,12 +241,11 @@ fun RadarsManagementScreen(
                             Text(
                                 text = "Сводка мониторинга",
                                 color = CyberneticOnSurface,
-                                fontSize = 15.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
 
-                        // Master toggle switch
                         Switch(
                             checked = activeCount > 0,
                             onCheckedChange = { enableAll ->
@@ -221,107 +260,31 @@ fun RadarsManagementScreen(
                         )
                     }
 
-                    // 3-Column Metrics
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Metric 1: Limit & active
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = CyberneticSurfaceContainer,
+                        MetricTile(
+                            label = "Радары",
+                            value = "${watchesUi.size}",
+                            subLabel = "$activeCount активных",
+                            accentColor = CyberneticPrimary,
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(
-                                    text = "Радары",
-                                    color = CyberneticOnSurfaceVariant,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Text(
-                                    text = "${watchesUi.size}/10",
-                                    color = CyberneticOnSurface,
-                                    fontSize = 16.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "$activeCount акт.",
-                                    color = if (activeCount > 0) CyberneticSecondary else CyberneticOutline,
-                                    fontSize = 10.sp
-                                )
-                            }
-                        }
-
-                        // Metric 2: Checked count (живой счётчик запросов)
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = CyberneticSurfaceContainer,
+                        )
+                        MetricTile(
+                            label = "Проверено",
+                            value = "${radarStatus.checksCount}",
+                            subLabel = CachedFormatters.formatShortAgo(radarStatus.lastCheckedAt, nowMs),
+                            accentColor = CyberneticSecondary,
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(
-                                    text = "Проверено",
-                                    color = CyberneticOnSurfaceVariant,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                val checksCountFormatted = java.text.NumberFormat.getIntegerInstance().format(radarStatus.checksCount)
-                                Text(
-                                    text = checksCountFormatted,
-                                    color = CyberneticSecondary,
-                                    fontSize = 16.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                val lastPollText = radarStatus.lastCheckedAt?.let {
-                                    val sec = ((System.currentTimeMillis() - it) / 1000).coerceAtLeast(0)
-                                    when {
-                                        sec < 5 -> "только что"
-                                        sec < 60 -> "$sec с назад"
-                                        sec < 3600 -> "${sec / 60}м назад"
-                                        else -> "${sec / 3600}ч назад"
-                                    }
-                                } ?: if (radarStatus.isRunning) "опрос..." else "остановлен"
-                                Text(
-                                    text = lastPollText,
-                                    color = CyberneticOnSurfaceVariant.copy(alpha = 0.75f),
-                                    fontSize = 10.sp,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-
-                        // Metric 3: Total deals
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = CyberneticSurfaceContainer,
+                        )
+                        MetricTile(
+                            label = "Находок",
+                            value = "$totalFindings",
+                            subLabel = "${watchesUi.count { it.findingsCount > 0 }} с лотами",
+                            accentColor = CyberneticTertiary,
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(
-                                    text = "Находок",
-                                    color = CyberneticOnSurfaceVariant,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Text(
-                                    text = "$totalFindings",
-                                    color = CyberneticTertiary,
-                                    fontSize = 16.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                val activeWithFindings = watchesUi.count { it.findingsCount > 0 }
-                                Text(
-                                    text = "$activeWithFindings с лотами",
-                                    color = CyberneticOnSurfaceVariant.copy(alpha = 0.75f),
-                                    fontSize = 10.sp,
-                                    maxLines = 1
-                                )
-                            }
-                        }
+                        )
                     }
                 }
             }
@@ -330,71 +293,58 @@ fun RadarsManagementScreen(
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 10.dp),
+                    .padding(vertical = 8.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                item {
+                item(key = "f_all") {
                     FilterChip(
                         selected = filterMode == "all",
                         onClick = { filterMode = "all" },
-                        label = { Text("Все (${watchesUi.size})") },
+                        label = { Text("Все (${watchesUi.size})", fontSize = 12.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = CyberneticPrimary.copy(alpha = 0.2f),
+                            selectedContainerColor = CyberneticPrimary.copy(alpha = 0.18f),
                             selectedLabelColor = CyberneticPrimary,
-                            containerColor = CyberneticSurfaceContainerHigh,
+                            containerColor = CyberneticSurfaceContainerLow,
                             labelColor = CyberneticOnSurfaceVariant
                         )
                     )
                 }
-                item {
+                item(key = "f_active") {
                     FilterChip(
                         selected = filterMode == "active",
                         onClick = { filterMode = "active" },
-                        label = { Text("Активные ($activeCount)") },
+                        label = { Text("Активные ($activeCount)", fontSize = 12.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = CyberneticPrimary.copy(alpha = 0.2f),
+                            selectedContainerColor = CyberneticPrimary.copy(alpha = 0.18f),
                             selectedLabelColor = CyberneticPrimary,
-                            containerColor = CyberneticSurfaceContainerHigh,
+                            containerColor = CyberneticSurfaceContainerLow,
                             labelColor = CyberneticOnSurfaceVariant
                         )
                     )
                 }
-                item {
+                item(key = "f_paused") {
                     FilterChip(
                         selected = filterMode == "paused",
                         onClick = { filterMode = "paused" },
-                        label = { Text("На паузе (${watchesUi.size - activeCount})") },
+                        label = { Text("На паузе (${watchesUi.size - activeCount})", fontSize = 12.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = CyberneticPrimary.copy(alpha = 0.2f),
+                            selectedContainerColor = CyberneticPrimary.copy(alpha = 0.18f),
                             selectedLabelColor = CyberneticPrimary,
-                            containerColor = CyberneticSurfaceContainerHigh,
+                            containerColor = CyberneticSurfaceContainerLow,
                             labelColor = CyberneticOnSurfaceVariant
                         )
                     )
                 }
-                item {
+                item(key = "f_new") {
                     FilterChip(
                         selected = filterMode == "new",
                         onClick = { filterMode = "new" },
-                        label = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(CyberneticSecondary)
-                                )
-                                Text("С находками")
-                            }
-                        },
+                        label = { Text("С находками", fontSize = 12.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = CyberneticPrimary.copy(alpha = 0.2f),
-                            selectedLabelColor = CyberneticPrimary,
-                            containerColor = CyberneticSurfaceContainerHigh,
+                            selectedContainerColor = CyberneticSecondary.copy(alpha = 0.18f),
+                            selectedLabelColor = CyberneticSecondary,
+                            containerColor = CyberneticSurfaceContainerLow,
                             labelColor = CyberneticOnSurfaceVariant
                         )
                     )
@@ -411,7 +361,8 @@ fun RadarsManagementScreen(
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(horizontal = 32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Radar,
@@ -420,9 +371,15 @@ fun RadarsManagementScreen(
                             modifier = Modifier.size(48.dp)
                         )
                         Text(
-                            text = "Радары не найдены",
+                            text = if (watchesUi.isEmpty()) "Создайте первый радар" else "Радары не найдены",
+                            color = CyberneticOnSurface,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Нажмите «Добавить радар» или вставьте готовую ссылку с OLX.ua.",
                             color = CyberneticOnSurfaceVariant,
-                            fontSize = 15.sp
+                            fontSize = 12.sp
                         )
                     }
                 }
@@ -431,6 +388,7 @@ fun RadarsManagementScreen(
                     items = filteredList,
                     radarStatus = radarStatus,
                     globalIntervalSec = globalIntervalSec,
+                    nowMs = nowMs,
                     modifier = Modifier.weight(1f),
                     onItemClick = { editingWatch = it.watch },
                     onToggleActive = { watch, active -> onToggleActive(watch, active) },
@@ -440,7 +398,7 @@ fun RadarsManagementScreen(
             }
         }
 
-        // FAB: "Добавить радар"
+        // FAB (без лишнего двойного отступа снизу!)
         ExtendedFloatingActionButton(
             onClick = { showAddDialog = true },
             icon = { Icon(Icons.Default.Add, contentDescription = null) },
@@ -449,34 +407,36 @@ fun RadarsManagementScreen(
             contentColor = CyberneticOnSecondary,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(bottom = 76.dp, end = 16.dp)
+                .padding(bottom = 14.dp, end = 16.dp)
         )
     }
 
-    // Add / Edit Radar Dialog
     if (showAddDialog || editingWatch != null) {
-        val watchToEdit = editingWatch
         AddEditRadarDialog(
-            initialWatch = watchToEdit,
+            initialWatch = editingWatch,
+            initialSharedUrl = if (editingWatch == null) pendingSharedUrl else null,
             onDismiss = {
                 showAddDialog = false
                 editingWatch = null
+                pendingSharedUrl = null
             },
+            onTestWatch = onTestWatch,
             onSave = { saved ->
                 onSaveWatch(saved)
                 showAddDialog = false
                 editingWatch = null
+                pendingSharedUrl = null
             }
         )
     }
 }
 
-
 @Composable
 fun AdaptiveRadarList(
     items: List<WatchItemUi>,
     radarStatus: ServiceStatus = ServiceStatus(),
-    globalIntervalSec: Int = 20,
+    globalIntervalSec: Int = 25,
+    nowMs: Long = System.currentTimeMillis(),
     modifier: Modifier = Modifier,
     onItemClick: (WatchItemUi) -> Unit,
     onToggleActive: (Watch, Boolean) -> Unit,
@@ -491,14 +451,15 @@ fun AdaptiveRadarList(
             modifier = Modifier
                 .fillMaxSize()
                 .widthIn(max = 680.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 90.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 84.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(items, key = { it.watch.id }) { itemUi ->
+            items(items, key = { it.watch.id }, contentType = { "radar_card" }) { itemUi ->
                 RadarCard(
                     itemUi = itemUi,
                     radarStatus = radarStatus,
                     globalIntervalSec = globalIntervalSec,
+                    nowMs = nowMs,
                     onToggleActive = { active -> onToggleActive(itemUi.watch, active) },
                     onEdit = { onItemClick(itemUi) },
                     onDuplicate = { onDuplicate(itemUi.watch) },
@@ -509,32 +470,29 @@ fun AdaptiveRadarList(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RadarCard(
     itemUi: WatchItemUi,
     radarStatus: ServiceStatus = ServiceStatus(),
-    globalIntervalSec: Int = 20,
+    globalIntervalSec: Int = 25,
+    nowMs: Long = System.currentTimeMillis(),
     onToggleActive: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit
 ) {
     val watch = itemUi.watch
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, CyberneticOutlineVariant.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
-            .clickable { onEdit() },
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (watch.isActive) CyberneticSurfaceContainer else CyberneticSurfaceContainerLow
-        )
+    RadarSurfaceCard(
+        onClick = onEdit,
+        shape = RoundedCornerShape(18.dp),
+        containerColor = if (watch.isActive) CyberneticSurfaceContainer else CyberneticSurfaceContainerLow,
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            // Top Row: Avatar + Title & Query + Switch
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -547,21 +505,24 @@ fun RadarCard(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(CyberneticSurfaceContainerHighest),
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(13.dp))
+                            .background(
+                                if (watch.isActive) CyberneticPrimary.copy(alpha = 0.14f)
+                                else CyberneticSurfaceContainerHighest
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Radar,
                             contentDescription = null,
                             tint = if (watch.isActive) CyberneticPrimary else CyberneticOutline,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .padding(2.dp)
+                                .padding(3.dp)
                                 .size(8.dp)
                                 .clip(CircleShape)
                                 .background(if (watch.isActive) CyberneticSecondary else CyberneticOutline)
@@ -578,7 +539,7 @@ fun RadarCard(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "Запрос: \"${watch.query}\"",
+                            text = "\"${watch.query}\"",
                             color = CyberneticOnSurfaceVariant,
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
@@ -600,158 +561,78 @@ fun RadarCard(
                 )
             }
 
-            // Badges Strip (FlowRow so badges wrap neatly without clipping or creating blank spaces)
-            @OptIn(ExperimentalLayoutApi::class)
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                // Price Range Badge
                 val currSymbol = when (watch.priceCurrency.trim().uppercase()) {
                     "USD", "$" -> "$"
                     "EUR", "€" -> "€"
                     else -> "₴"
                 }
                 val priceText = when {
-                    watch.priceFrom != null && watch.priceTo != null -> "${watch.priceFrom} – ${watch.priceTo} $currSymbol"
+                    watch.priceFrom != null && watch.priceTo != null -> "${watch.priceFrom}–${watch.priceTo} $currSymbol"
                     watch.priceFrom != null -> "от ${watch.priceFrom} $currSymbol"
                     watch.priceTo != null -> "до ${watch.priceTo} $currSymbol"
                     else -> "Любая цена"
                 }
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = CyberneticSurfaceContainerHighest
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Payments,
-                            contentDescription = null,
-                            tint = CyberneticTertiary,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Text(
-                            text = priceText,
-                            color = CyberneticOnSurface,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
+                RadarBadgeChip(icon = Icons.Default.Payments, text = priceText, accent = CyberneticTertiary)
+
+                RadarBadgeChip(
+                    icon = Icons.Default.LocationOn,
+                    text = watch.cityName ?: "Вся Украина",
+                    accent = CyberneticPrimary
+                )
+
+                val catLabel = OlxCategory.entries.firstOrNull { it.id == watch.categoryId }?.label
+                if (catLabel != null && watch.categoryId != null) {
+                    RadarBadgeChip(icon = Icons.Default.Category, text = catLabel, accent = CyberneticOnSurfaceVariant)
                 }
 
-                // Delivery / Region
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = CyberneticSurfaceContainerHighest
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.LocalShipping,
-                            contentDescription = null,
-                            tint = CyberneticPrimary,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Text(
-                            text = watch.cityName ?: "OLX Доставка",
-                            color = CyberneticOnSurfaceVariant,
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                if (watch.ownerType == "private") {
+                    RadarBadgeChip(icon = Icons.Default.Person, text = "Частные", accent = CyberneticSecondary)
+                } else if (watch.ownerType == "business") {
+                    RadarBadgeChip(icon = Icons.Default.Store, text = "Бизнес", accent = CyberneticOnSurfaceVariant)
                 }
 
-                // Must Words Badge
+                if (watch.state == "new") {
+                    RadarBadgeChip(icon = Icons.Default.NewReleases, text = "Новое", accent = CyberneticSecondary)
+                } else if (watch.state == "used") {
+                    RadarBadgeChip(icon = Icons.Default.History, text = "Б/у", accent = CyberneticOnSurfaceVariant)
+                }
+
                 if (watch.mustWords.isNotBlank()) {
                     val modeLabel = if (watch.mustWordsMode == "all") "И" else "ИЛИ"
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = CyberneticPrimary.copy(alpha = 0.15f)
-                    ) {
-                        Text(
-                            text = "[$modeLabel] ${watch.mustWords}",
-                            color = CyberneticPrimary,
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
+                    RadarBadgeChip(
+                        icon = null,
+                        text = "[$modeLabel] ${watch.mustWords}",
+                        accent = CyberneticPrimary
+                    )
                 }
 
-                // Publication Age Badge (Свежесть объявления)
                 if (watch.publicationAge.isNotBlank() && watch.publicationAge != "any") {
-                    val (ageLabel, ageColor) = when (watch.publicationAge) {
-                        "fresh" -> "Свежие (<24ч)" to Color(0xFF2E7D32)
-                        "recent" -> "Недавние (<3дн)" to CyberneticPrimary
-                        "week" -> "За неделю" to CyberneticOnSurfaceVariant
-                        "old" -> "Висяки (>7дн)" to CyberneticTertiary
-                        "very_old" -> "Висяки (>14дн)" to CyberneticTertiary
-                        else -> watch.publicationAge to CyberneticPrimary
+                    val ageLabel = when (watch.publicationAge) {
+                        "fresh" -> "<24ч"
+                        "recent" -> "<3дн"
+                        "week" -> "<7дн"
+                        "old" -> ">7дн"
+                        "very_old" -> ">14дн"
+                        else -> watch.publicationAge
                     }
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = ageColor.copy(alpha = 0.15f)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Schedule,
-                                contentDescription = null,
-                                tint = ageColor,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = ageLabel,
-                                color = ageColor,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
+                    RadarBadgeChip(icon = Icons.Default.Schedule, text = ageLabel, accent = CyberneticTertiary)
                 }
 
-                // Findings Count
                 if (itemUi.findingsCount > 0) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = CyberneticSecondary.copy(alpha = 0.15f)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Bolt,
-                                contentDescription = null,
-                                tint = CyberneticSecondary,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = "+${itemUi.findingsCount} находок",
-                                color = CyberneticSecondary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                    RadarBadgeChip(
+                        icon = Icons.Default.Bolt,
+                        text = "+${itemUi.findingsCount}",
+                        accent = CyberneticSecondary
+                    )
                 }
             }
 
-            // Bottom Telemetry Strip & Actions
-            Divider(color = CyberneticOutlineVariant.copy(alpha = 0.2f), thickness = 1.dp)
+            HorizontalDivider(color = CyberneticCardBorderSoft, thickness = 1.dp)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -764,8 +645,8 @@ fun RadarCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     val watchLive = radarStatus.perWatch[watch.id]
-                    val hasError = !watchLive?.lastError.isNullOrBlank() || !watch.lastError.isNullOrBlank()
                     val errorMsg = watchLive?.lastError ?: watch.lastError
+                    val hasError = !errorMsg.isNullOrBlank()
                     val is500 = errorMsg?.contains("500") == true
                     val lastSuccess = watchLive?.lastSuccessAt ?: watch.lastSuccessAt
                     val interval = watch.intervalSecOverride ?: globalIntervalSec
@@ -791,7 +672,7 @@ fun RadarCard(
                             fontWeight = FontWeight.Medium
                         )
                     } else if (hasError) {
-                        val displayMsg = if (is500) "OLX занят (500) · повтор..." else "Ошибка: ${errorMsg?.take(22)}..."
+                        val displayMsg = if (is500) "OLX занят (500) · повтор..." else "Ошибка: ${errorMsg?.take(22)}"
                         Text(
                             text = displayMsg,
                             color = if (is500) CyberneticTertiary else CyberneticError,
@@ -800,15 +681,7 @@ fun RadarCard(
                             overflow = TextOverflow.Ellipsis
                         )
                     } else {
-                        val agoStr = lastSuccess?.let {
-                            val sec = ((System.currentTimeMillis() - it) / 1000).coerceAtLeast(0)
-                            when {
-                                sec < 10 -> "только что"
-                                sec < 60 -> "${sec}с назад"
-                                sec < 3600 -> "${sec / 60}м назад"
-                                else -> "${sec / 3600}ч назад"
-                            }
-                        } ?: "ожидает"
+                        val agoStr = CachedFormatters.formatShortAgo(lastSuccess, nowMs)
                         Text(
                             text = "Каждые ${interval}с · $agoStr",
                             color = CyberneticOnSurfaceVariant,
@@ -820,13 +693,8 @@ fun RadarCard(
                     }
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    IconButton(
-                        onClick = onDuplicate,
-                        modifier = Modifier.size(28.dp)
-                    ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconButton(onClick = onDuplicate, modifier = Modifier.size(30.dp)) {
                         Icon(
                             imageVector = Icons.Default.ContentCopy,
                             contentDescription = "Дублировать",
@@ -834,20 +702,46 @@ fun RadarCard(
                             modifier = Modifier.size(16.dp)
                         )
                     }
-
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.size(28.dp)
-                    ) {
+                    IconButton(onClick = onDelete, modifier = Modifier.size(30.dp)) {
                         Icon(
-                            imageVector = Icons.Default.Delete,
+                            imageVector = Icons.Default.DeleteOutline,
                             contentDescription = "Удалить",
                             tint = CyberneticError,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(17.dp)
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RadarBadgeChip(
+    icon: androidx.compose.ui.graphics.vector.ImageVector?,
+    text: String,
+    accent: Color
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = CyberneticSurfaceContainerLow,
+        border = BorderStroke(1.dp, CyberneticCardBorderSoft)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(11.dp))
+            }
+            Text(
+                text = text,
+                color = CyberneticOnSurface,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -862,56 +756,169 @@ val DEFAULT_EXCLUSION_WORDS = listOf(
     "после ремонта"
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddEditRadarDialog(
     initialWatch: Watch?,
+    initialSharedUrl: String? = null,
     onDismiss: () -> Unit,
+    onTestWatch: (suspend (Watch) -> Result<List<Listing>>)? = null,
     onSave: (Watch) -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var olxUrlInput by remember { mutableStateOf(initialSharedUrl ?: "") }
+    var showUrlImporter by remember { mutableStateOf(initialWatch == null) }
+
     var title by remember { mutableStateOf(initialWatch?.title ?: "") }
     var query by remember { mutableStateOf(initialWatch?.query ?: "") }
     var priceFrom by remember { mutableStateOf(initialWatch?.priceFrom?.toString() ?: "") }
     var priceTo by remember { mutableStateOf(initialWatch?.priceTo?.toString() ?: "") }
+    var priceCurrency by remember { mutableStateOf(initialWatch?.priceCurrency ?: "UAH") }
+    var includeNoPrice by remember { mutableStateOf(initialWatch?.includeNoPrice ?: true) }
+    var cityName by remember { mutableStateOf(initialWatch?.cityName ?: "") }
+    var categoryId by remember { mutableStateOf(initialWatch?.categoryId ?: OlxCategory.ALL.id) }
+    var ownerType by remember { mutableStateOf(initialWatch?.ownerType ?: "any") }
+    var productState by remember { mutableStateOf(initialWatch?.state ?: "any") }
+    var notifyMode by remember { mutableStateOf(initialWatch?.notifyMode ?: "new_pushup") }
+    var intervalOverride by remember { mutableStateOf(initialWatch?.intervalSecOverride) }
+
     var stopWords by remember { mutableStateOf(initialWatch?.stopWords ?: "") }
     var mustWords by remember { mutableStateOf(initialWatch?.mustWords ?: "") }
     var mustWordsMode by remember { mutableStateOf(initialWatch?.mustWordsMode ?: "any") }
     var publicationAge by remember { mutableStateOf(initialWatch?.publicationAge ?: "any") }
-    var categoryId by remember { mutableStateOf(initialWatch?.categoryId ?: OlxCategory.ALL.id) }
     var conditionTarget by remember { mutableStateOf(initialWatch?.conditionTarget ?: "any") }
     var conditionThreshold by remember { mutableFloatStateOf((initialWatch?.conditionThreshold ?: 0).coerceIn(0, 100).toFloat()) }
-    var cityName by remember { mutableStateOf(initialWatch?.cityName ?: "") }
+
+    var isTestingSearch by remember { mutableStateOf(false) }
+    var testResults by remember { mutableStateOf<List<Listing>?>(null) }
+    var testError by remember { mutableStateOf<String?>(null) }
+
+    fun applySharedUrl(rawUrl: String, notifyUser: Boolean) {
+        val parsed = OlxUrlImporter.parseOlxUrl(rawUrl)
+        if (parsed == null) {
+            if (notifyUser) {
+                Toast.makeText(context, "Не удалось распознать ссылку OLX", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            title = parsed.title
+            query = parsed.query
+            priceFrom = parsed.priceFrom?.toString() ?: ""
+            priceTo = parsed.priceTo?.toString() ?: ""
+            priceCurrency = parsed.priceCurrency
+            cityName = parsed.cityName ?: ""
+            categoryId = parsed.categoryId ?: OlxCategory.ALL.id
+            productState = parsed.state ?: "any"
+            ownerType = parsed.ownerType ?: "any"
+            if (notifyUser) {
+                Toast.makeText(context, "Параметры из ссылки применены!", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    LaunchedEffect(initialSharedUrl) {
+        if (!initialSharedUrl.isNullOrBlank() && initialWatch == null) {
+            applySharedUrl(initialSharedUrl, notifyUser = true)
+        }
+    }
+
+    fun buildDraftWatch(): Watch = (initialWatch ?: Watch(title = "", query = "")).copy(
+        title = title.ifBlank { query },
+        query = query.trim(),
+        priceFrom = priceFrom.toIntOrNull(),
+        priceTo = priceTo.toIntOrNull(),
+        priceCurrency = priceCurrency,
+        includeNoPrice = includeNoPrice,
+        cityName = cityName.trim().ifBlank { null },
+        categoryId = if (categoryId == OlxCategory.ALL.id) null else categoryId,
+        ownerType = ownerType.takeIf { it != "any" },
+        state = productState.takeIf { it != "any" },
+        notifyMode = notifyMode,
+        intervalSecOverride = intervalOverride,
+        stopWords = stopWords,
+        mustWords = mustWords,
+        mustWordsMode = mustWordsMode,
+        publicationAge = publicationAge,
+        conditionTarget = conditionTarget,
+        conditionThreshold = if (conditionTarget == "any") 0 else conditionThreshold.roundToInt()
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = CyberneticSurfaceContainer,
+        containerColor = CyberneticModalSurface,
         title = {
-            Text(
-                text = if (initialWatch == null) "Новый радар" else "Редактировать радар",
-                color = CyberneticOnSurface,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (initialWatch == null) "Новый радар" else "Редактировать радар",
+                    color = CyberneticOnSurface,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Закрыть", tint = CyberneticOnSurfaceVariant)
+                }
+            }
         },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 620.dp)
+                    .heightIn(max = 560.dp)
+                    .imePadding()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // ИМПОРТ ИЗ ССЫЛКИ OLX
+                if (showUrlImporter) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = CyberneticSurfaceContainerLow,
+                        border = BorderStroke(1.dp, CyberneticPrimary.copy(alpha = 0.25f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Быстрый импорт из ссылки OLX.ua",
+                                color = CyberneticPrimary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = olxUrlInput,
+                                    onValueChange = { olxUrlInput = it },
+                                    placeholder = { Text("https://www.olx.ua/...", fontSize = 11.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                FilledTonalButton(
+                                    onClick = { applySharedUrl(olxUrlInput, notifyUser = true) },
+                                    enabled = olxUrlInput.isNotBlank(),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Text("Ок", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
                     label = { Text("Название радара") },
                     placeholder = { Text("Например: iPhone 13 Pro") },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = CyberneticOnSurface,
-                        unfocusedTextColor = CyberneticOnSurface,
-                        focusedBorderColor = CyberneticPrimary,
-                        unfocusedBorderColor = CyberneticOutlineVariant
-                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -919,27 +926,19 @@ fun AddEditRadarDialog(
                     value = query,
                     onValueChange = { query = it },
                     label = { Text("Поисковый запрос OLX") },
-                    placeholder = { Text("iphone 13 pro -max") },
+                    placeholder = { Text("iphone 13 pro -max -чехол") },
+                    supportingText = { Text("Поддерживает минус-слова прямо в запросе (через -)", fontSize = 10.sp) },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = CyberneticOnSurface,
-                        unfocusedTextColor = CyberneticOnSurface,
-                        focusedBorderColor = CyberneticPrimary,
-                        unfocusedBorderColor = CyberneticOutlineVariant
-                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // КАТЕГОРИЯ
+                // КАТЕГОРИЯ (FlowRow — не обрезается!)
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = "Категория поиска",
-                        color = CyberneticOnSurfaceVariant,
-                        fontSize = 12.sp
-                    )
-                    Row(
+                    Text("Категория поиска", color = CyberneticOnSurfaceVariant, fontSize = 12.sp)
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         OlxCategory.entries.forEach { cat ->
                             FilterChip(
@@ -955,279 +954,334 @@ fun AddEditRadarDialog(
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = priceFrom,
-                        onValueChange = { priceFrom = it },
-                        label = { Text("Цена от (₴)") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = CyberneticOnSurface,
-                            unfocusedTextColor = CyberneticOnSurface,
-                            focusedBorderColor = CyberneticPrimary,
-                            unfocusedBorderColor = CyberneticOutlineVariant
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
+                // ВАЛЮТА И ЦЕНА
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Цена и валюта", color = CyberneticOnSurfaceVariant, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf("UAH" to "₴", "USD" to "$", "EUR" to "€").forEach { (code, sym) ->
+                                val selected = priceCurrency == code
+                                Surface(
+                                    onClick = { priceCurrency = code },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (selected) CyberneticPrimary.copy(alpha = 0.2f) else CyberneticSurfaceContainerLow,
+                                    border = BorderStroke(1.dp, if (selected) CyberneticPrimary else CyberneticCardBorderSoft)
+                                ) {
+                                    Text(
+                                        text = "$code ($sym)",
+                                        color = if (selected) CyberneticPrimary else CyberneticOnSurfaceVariant,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
 
-                    OutlinedTextField(
-                        value = priceTo,
-                        onValueChange = { priceTo = it },
-                        label = { Text("Цена до (₴)") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = CyberneticOnSurface,
-                            unfocusedTextColor = CyberneticOnSurface,
-                            focusedBorderColor = CyberneticPrimary,
-                            unfocusedBorderColor = CyberneticOutlineVariant
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = priceFrom,
+                            onValueChange = { if (it.all(Char::isDigit)) priceFrom = it },
+                            label = { Text("От") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = priceTo,
+                            onValueChange = { if (it.all(Char::isDigit)) priceTo = it },
+                            label = { Text("До") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Показывать объявления без цены", color = CyberneticOnSurfaceVariant, fontSize = 12.sp)
+                        Switch(checked = includeNoPrice, onCheckedChange = { includeNoPrice = it })
+                    }
                 }
 
-                OutlinedTextField(
-                    value = cityName,
-                    onValueChange = { cityName = it },
-                    label = { Text("Город / Регион (опционально)") },
-                    placeholder = { Text("Киев") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = CyberneticOnSurface,
-                        unfocusedTextColor = CyberneticOnSurface,
-                        focusedBorderColor = CyberneticPrimary,
-                        unfocusedBorderColor = CyberneticOutlineVariant
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                // ГОРОД + БЫСТРЫЕ ГОРОДА
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedTextField(
+                        value = cityName,
+                        onValueChange = { cityName = it },
+                        label = { Text("Города (через запятую, UA/RU)") },
+                        placeholder = { Text("Вся Украина или Киев, Бровары") },
+                        singleLine = true,
+                        trailingIcon = {
+                            if (cityName.isNotBlank()) {
+                                IconButton(onClick = { cityName = "" }) {
+                                    Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(OlxCities.POPULAR_CITIES, key = { it }) { c ->
+                            val currentCities = OlxCities.splitCities(cityName)
+                            val selected = currentCities.any { OlxCities.citiesMatchExact(it, c) }
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    val updated = if (selected) {
+                                        currentCities.filterNot { OlxCities.citiesMatchExact(it, c) }
+                                    } else {
+                                        currentCities + c
+                                    }
+                                    cityName = updated.joinToString(", ")
+                                },
+                                label = { Text(c, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                }
+
+                // ПРОДАВЕЦ И СОСТОЯНИЕ
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Продавец и состояние", color = CyberneticOnSurfaceVariant, fontSize = 12.sp)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf("any" to "Все продавцы", "private" to "Частные", "business" to "Бизнес").forEach { (k, lbl) ->
+                            FilterChip(selected = ownerType == k, onClick = { ownerType = k }, label = { Text(lbl, fontSize = 11.sp) })
+                        }
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf("any" to "Любое сост.", "used" to "Б/у", "new" to "Новое").forEach { (k, lbl) ->
+                            FilterChip(selected = productState == k, onClick = { productState = k }, label = { Text(lbl, fontSize = 11.sp) })
+                        }
+                    }
+                }
+
+                // РЕЖИМ УВЕДОМЛЕНИЙ И ИНТЕРВАЛ
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Уведомления и частота опроса", color = CyberneticOnSurfaceVariant, fontSize = 12.sp)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        FilterChip(
+                            selected = notifyMode == "new_pushup",
+                            onClick = { notifyMode = "new_pushup" },
+                            label = { Text("Новые + Поднятые", fontSize = 11.sp) }
+                        )
+                        FilterChip(
+                            selected = notifyMode == "new",
+                            onClick = { notifyMode = "new" },
+                            label = { Text("Только новые", fontSize = 11.sp) }
+                        )
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(null to "Авто", 15 to "15с", 25 to "25с", 60 to "60с", 300 to "5м").forEach { (sec, lbl) ->
+                            FilterChip(
+                                selected = intervalOverride == sec,
+                                onClick = { intervalOverride = sec },
+                                label = { Text(lbl, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                }
 
                 // ОБЯЗАТЕЛЬНЫЕ СЛОВА
                 OutlinedTextField(
                     value = mustWords,
                     onValueChange = { mustWords = it },
                     label = { Text("Обязательные слова (через запятую)") },
-                    placeholder = { Text("робочий, идеальное состояние") },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = CyberneticOnSurface,
-                        unfocusedTextColor = CyberneticOnSurface,
-                        focusedBorderColor = CyberneticPrimary,
-                        unfocusedBorderColor = CyberneticOutlineVariant
-                    ),
+                    placeholder = { Text("128gb, pro") },
                     modifier = Modifier.fillMaxWidth()
                 )
-
-                // РЕЖИМ СОВПАДЕНИЯ ОБЯЗАТЕЛЬНЫХ СЛОВ (И / ИЛИ)
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = "Правило обязательных слов:",
-                        color = CyberneticOnSurfaceVariant,
-                        fontSize = 11.sp
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    FilterChip(
+                        selected = mustWordsMode == "any",
+                        onClick = { mustWordsMode = "any" },
+                        label = { Text("ИЛИ (хотя бы одно)", fontSize = 11.sp) }
                     )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        FilterChip(
-                            selected = mustWordsMode == "any",
-                            onClick = { mustWordsMode = "any" },
-                            label = { Text("ИЛИ (хотя бы одно)", fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = CyberneticPrimary.copy(alpha = 0.2f),
-                                selectedLabelColor = CyberneticPrimary,
-                                containerColor = CyberneticSurfaceContainerLow,
-                                labelColor = CyberneticOnSurfaceVariant
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = mustWordsMode == "any",
-                                borderColor = CyberneticOutlineVariant,
-                                selectedBorderColor = CyberneticPrimary.copy(alpha = 0.5f)
-                            )
-                        )
-                        FilterChip(
-                            selected = mustWordsMode == "all",
-                            onClick = { mustWordsMode = "all" },
-                            label = { Text("И (все слова)", fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = CyberneticPrimary.copy(alpha = 0.2f),
-                                selectedLabelColor = CyberneticPrimary,
-                                containerColor = CyberneticSurfaceContainerLow,
-                                labelColor = CyberneticOnSurfaceVariant
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = mustWordsMode == "all",
-                                borderColor = CyberneticOutlineVariant,
-                                selectedBorderColor = CyberneticPrimary.copy(alpha = 0.5f)
-                            )
-                        )
-                    }
+                    FilterChip(
+                        selected = mustWordsMode == "all",
+                        onClick = { mustWordsMode = "all" },
+                        label = { Text("И (все слова)", fontSize = 11.sp) }
+                    )
                 }
 
-                // СВЕЖЕСТЬ ОБЪЯВЛЕНИЯ (ДАТА ПУБЛИКАЦИИ НА OLX)
+                // СВЕЖЕСТЬ ОБЪЯВЛЕНИЯ
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = "Свежесть объявления (дата публикации):",
-                        color = CyberneticOnSurfaceVariant,
-                        fontSize = 12.sp
-                    )
-                    @OptIn(ExperimentalLayoutApi::class)
+                    Text("Свежесть публикации на OLX", color = CyberneticOnSurfaceVariant, fontSize = 12.sp)
                     FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         listOf(
-                            "any" to "Все (любое)",
-                            "fresh" to "Свежие (< 24 ч)",
-                            "recent" to "Недавние (< 3 дн)",
-                            "week" to "За неделю (< 7 дн)",
-                            "old" to "Висяки (> 7 дн)"
+                            "any" to "Любое",
+                            "fresh" to "< 24ч",
+                            "recent" to "< 3 дн",
+                            "week" to "< 7 дн",
+                            "old" to "Висяки >7дн"
                         ).forEach { (key, label) ->
                             FilterChip(
                                 selected = publicationAge == key,
                                 onClick = { publicationAge = key },
-                                label = { Text(label, fontSize = 11.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = CyberneticPrimary.copy(alpha = 0.2f),
-                                    selectedLabelColor = CyberneticPrimary,
-                                    containerColor = CyberneticSurfaceContainerLow,
-                                    labelColor = CyberneticOnSurfaceVariant
-                                ),
-                                border = FilterChipDefaults.filterChipBorder(
-                                    enabled = true,
-                                    selected = publicationAge == key,
-                                    borderColor = CyberneticOutlineVariant,
-                                    selectedBorderColor = CyberneticPrimary.copy(alpha = 0.5f)
-                                )
+                                label = { Text(label, fontSize = 11.sp) }
                             )
                         }
                     }
                 }
 
-                // БЫСТРЫЕ ИСКЛЮЧЕНИЯ
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = "Быстрые исключения — нажмите, чтобы добавить к минус-словам",
-                        color = CyberneticOnSurfaceVariant,
-                        fontSize = 11.sp
-                    )
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(DEFAULT_EXCLUSION_WORDS) { word ->
-                            val alreadyThere = stopWords.split(",")
-                                .map { it.trim().lowercase() }
-                                .contains(word)
-                            Surface(
-                                onClick = {
-                                    if (!alreadyThere) {
-                                        stopWords = if (stopWords.isBlank()) word else "$stopWords, $word"
-                                    } else {
-                                        val cleaned = stopWords.split(",")
-                                            .map { it.trim() }
-                                            .filterNot { it.lowercase() == word }
-                                            .joinToString(", ")
-                                        stopWords = cleaned
-                                    }
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (alreadyThere) CyberneticSecondary.copy(alpha = 0.2f) else CyberneticSurfaceContainerHigh,
-                                border = if (alreadyThere) null else BorderStroke(1.dp, CyberneticOutlineVariant.copy(alpha = 0.5f))
-                            ) {
-                                Text(
-                                    text = if (alreadyThere) "✓ $word" else "+ $word",
-                                    color = if (alreadyThere) CyberneticSecondary else CyberneticOnSurfaceVariant,
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // СЕНСОР СОСТОЯНИЯ
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = "Сенсор состояния",
-                        color = CyberneticOnSurfaceVariant,
-                        fontSize = 12.sp
-                    )
-                    Text(
-                        text = if (conditionTarget == "any")
-                            "Выключен — все объявления проходят"
-                        else
-                            "Порог ${conditionThreshold.roundToInt()}% · ${ConditionAnalyzer.explain(conditionTarget, conditionThreshold.roundToInt())}",
-                        color = CyberneticPrimary,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf("any" to "Любое", "working" to "Рабочий", "broken" to "Нерабочий")
-                            .forEach { (key, label) ->
-                                FilterChip(
-                                    selected = conditionTarget == key,
-                                    onClick = {
-                                        conditionTarget = key
-                                        if (key != "any" && conditionThreshold == 0f) conditionThreshold = 50f
-                                    },
-                                    label = { Text(label, fontSize = 11.sp) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = CyberneticPrimary.copy(alpha = 0.2f),
-                                        selectedLabelColor = CyberneticPrimary
-                                    )
-                                )
-                            }
-                    }
-                    if (conditionTarget != "any") {
-                        Slider(
-                            value = conditionThreshold,
-                            onValueChange = { conditionThreshold = it },
-                            valueRange = 0f..100f,
-                            colors = SliderDefaults.colors(
-                                thumbColor = CyberneticPrimary,
-                                activeTrackColor = CyberneticPrimary,
-                                inactiveTrackColor = CyberneticSurfaceContainerHighest
-                            )
-                        )
-                    }
-                }
-
+                // МИНУС-СЛОВА + БЫСТРЫЕ ИСКЛЮЧЕНИЯ
                 OutlinedTextField(
                     value = stopWords,
                     onValueChange = { stopWords = it },
                     label = { Text("Минус-слова (через запятую)") },
                     placeholder = { Text("коробка, чехол, запчасти") },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = CyberneticOnSurface,
-                        unfocusedTextColor = CyberneticOnSurface,
-                        focusedBorderColor = CyberneticPrimary,
-                        unfocusedBorderColor = CyberneticOutlineVariant
-                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(DEFAULT_EXCLUSION_WORDS, key = { it }) { word ->
+                        val alreadyThere = stopWords.split(",").map { it.trim().lowercase() }.contains(word)
+                        Surface(
+                            onClick = {
+                                stopWords = if (!alreadyThere) {
+                                    if (stopWords.isBlank()) word else "$stopWords, $word"
+                                } else {
+                                    stopWords.split(",").map { it.trim() }.filterNot { it.lowercase() == word }.joinToString(", ")
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (alreadyThere) CyberneticSecondary.copy(alpha = 0.2f) else CyberneticSurfaceContainerLow,
+                            border = BorderStroke(1.dp, CyberneticCardBorderSoft)
+                        ) {
+                            Text(
+                                text = if (alreadyThere) "✓ $word" else "+ $word",
+                                color = if (alreadyThere) CyberneticSecondary else CyberneticOnSurfaceVariant,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+
+                // СЕНСОР СОСТОЯНИЯ
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Сенсор состояния текста", color = CyberneticOnSurfaceVariant, fontSize = 12.sp)
+                    Text(
+                        text = if (conditionTarget == "any") "Выключен" else "Порог ${conditionThreshold.roundToInt()}% · ${ConditionAnalyzer.explain(conditionTarget, conditionThreshold.roundToInt())}",
+                        color = CyberneticPrimary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf("any" to "Любое", "working" to "Рабочий", "broken" to "Нерабочий").forEach { (key, label) ->
+                            FilterChip(
+                                selected = conditionTarget == key,
+                                onClick = {
+                                    conditionTarget = key
+                                    if (key != "any" && conditionThreshold == 0f) conditionThreshold = 50f
+                                },
+                                label = { Text(label, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                    if (conditionTarget != "any") {
+                        Slider(
+                            value = conditionThreshold,
+                            onValueChange = { conditionThreshold = it },
+                            valueRange = 0f..100f
+                        )
+                    }
+                }
+
+                // ЖИВАЯ ПРОВЕРКА ПОИСКА НА OLX ПРЯМО В РЕДАКТОРЕ
+                if (onTestWatch != null) {
+                    OutlinedButton(
+                        onClick = {
+                            isTestingSearch = true
+                            testError = null
+                            testResults = null
+                            scope.launch {
+                                val res = onTestWatch(buildDraftWatch())
+                                isTestingSearch = false
+                                res.onSuccess { testResults = it }
+                                res.onFailure { testError = it.message ?: "Ошибка запроса" }
+                            }
+                        },
+                        enabled = query.isNotBlank() && !isTestingSearch,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isTestingSearch) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Проверяем выдачу OLX...", fontSize = 12.sp)
+                        } else {
+                            Icon(Icons.Default.TravelExplore, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Проверить сейчас (тест поиска)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    testError?.let { err ->
+                        Text(text = "Ошибка: $err", color = CyberneticError, fontSize = 11.sp)
+                    }
+                    AnimatedVisibility(visible = testResults != null) {
+                        val list = testResults ?: emptyList()
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = CyberneticSurfaceContainerLow,
+                            border = BorderStroke(1.dp, CyberneticCardBorderSoft),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = if (list.isEmpty()) "Совпадений пока нет — попробуйте ослабить фильтры"
+                                    else "Найдено совпадений: ${list.size}",
+                                    color = if (list.isEmpty()) CyberneticTertiary else CyberneticSecondary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                list.take(5).forEach { l ->
+                                    Text(
+                                        text = "• ${l.title} — ${CachedFormatters.formatPrice(l.price, l.currency)} (${l.cityName})",
+                                        color = CyberneticOnSurfaceVariant,
+                                        fontSize = 11.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
-                onClick = {
-                    val finalWatch = (initialWatch ?: Watch(title = "", query = "")).copy(
-                        title = title.ifBlank { query },
-                        query = query,
-                        priceFrom = priceFrom.toIntOrNull(),
-                        priceTo = priceTo.toIntOrNull(),
-                        cityName = cityName.ifBlank { null },
-                        stopWords = stopWords,
-                        mustWords = mustWords,
-                        mustWordsMode = mustWordsMode,
-                        publicationAge = publicationAge,
-                        categoryId = if (categoryId == OlxCategory.ALL.id) null else categoryId,
-                        conditionTarget = conditionTarget,
-                        conditionThreshold = if (conditionTarget == "any") 0 else conditionThreshold.roundToInt()
-                    )
-                    onSave(finalWatch)
-                },
+                onClick = { onSave(buildDraftWatch()) },
                 enabled = query.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = CyberneticPrimary,

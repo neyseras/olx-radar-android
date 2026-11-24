@@ -16,8 +16,8 @@ android {
         applicationId = "ua.magerko.olxradar"
         minSdk = 24
         targetSdk = 34
-        versionCode = 261120080   // внутренний монотонный код версии для Android OS
-        versionName = "2611080"   // схема нумерации версий ГГММ + счетчик (26 11 080)
+        versionCode = 261120081   // внутренний монотонный код версии для Android OS
+        versionName = "2611081"   // схема нумерации версий ГГММ + счетчик (26 11 081)
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -48,8 +48,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -73,8 +73,8 @@ android {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
-            it.maxHeapSize = "512m"
-            it.jvmArgs("-XX:MaxMetaspaceSize=256m")
+            it.maxHeapSize = "1024m"
+            it.jvmArgs("-XX:MaxMetaspaceSize=512m")
         }
     }
     sourceSets {
@@ -96,6 +96,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-service:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.6")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("com.github.bumptech.glide:glide:4.16.0")
 
